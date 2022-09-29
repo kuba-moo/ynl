@@ -1,0 +1,67 @@
+name: psp
+
+doc:
+  PSP Security Protocol Generic Netlink family.
+
+definitions:
+  -
+    type: enum
+    name: version
+    entries: [ hdr0-aes-gcm-128, hdr0-aes-gcm-256,
+               hdr0-aes-gmac-128, hdr0-aes-gmac-256, ]
+
+attribute-sets:
+  -
+    name: dev
+    attributes:
+      -
+        name: id
+        doc: PSP device ID.
+        type: u32
+        value: 1
+        checks:
+          min: 1
+      -
+        name: ifindex
+        doc: ifindex of the main netdevice linked to the PSP device.
+        type: u32
+      -
+        name: psp-versions-cap
+        doc: Bitmask of PSP versions supported by the device.
+        type: u32
+        enum: version
+        enum-as-flags: true
+
+operations:
+  list:
+    -
+      name: dev_get
+      doc: Get / dump information about PSP capable devices on the system.
+      value: 1
+      attribute-set: dev
+      do:
+        request:
+          attributes:
+            - id
+        reply: &dev-all
+          attributes:
+            - id
+            - ifindex
+            - psp-versions-cap
+      dump:
+        reply: *dev-all
+    -
+      name: dev_add_ntf
+      doc: Notification about device appearing.
+      notify: dev_get
+      mcgrp: mgmt
+    -
+      name: dev_del_ntf
+      doc: Notification about device disappearing.
+      notify: dev_get
+      mcgrp: mgmt
+
+mcast-groups:
+  list:
+    -
+      name: mgmt
