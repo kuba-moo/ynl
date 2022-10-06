@@ -18,13 +18,17 @@
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/netdevice.h>
+#include <linux/psp.h>
 #include <linux/slab.h>
 #include <net/netlink.h>
 #include <net/pkt_cls.h>
+#include <net/psp.h>
 #include <net/rtnetlink.h>
 #include <net/udp_tunnel.h>
 
 #include "netdevsim.h"
+
+MODULE_IMPORT_NS(NETDEV_PRIVATE);
 
 static netdev_tx_t nsim_start_xmit(struct sk_buff *skb, struct net_device *dev)
 {
@@ -288,6 +292,14 @@ static void nsim_setup(struct net_device *dev)
 	dev->max_mtu = ETH_MAX_MTU;
 }
 
+static struct psp_dev_ops nsim_psp_ops = {
+};
+
+static struct psp_dev_caps nsim_psp_caps = {
+	.versions = 1 << PSP_VERSION_HDR0_AES_GCM_128 |
+		    1 << PSP_VERSION_HDR0_AES_GMAC_128,
+};
+
 static int nsim_init_netdevsim(struct netdevsim *ns)
 {
 	int err;
@@ -309,6 +321,10 @@ static int nsim_init_netdevsim(struct netdevsim *ns)
 	if (err)
 		goto err_ipsec_teardown;
 	rtnl_unlock();
+
+	ns->psp = psp_dev_create(ns->netdev, &nsim_psp_ops,
+				 &nsim_psp_caps, NULL);
+
 	return 0;
 
 err_ipsec_teardown:
@@ -370,6 +386,8 @@ void nsim_destroy(struct netdevsim *ns)
 {
 	struct net_device *dev = ns->netdev;
 
+	if (ns->psp)
+		psp_dev_unregister(ns->psp);
 	rtnl_lock();
 	unregister_netdevice(dev);
 	if (nsim_dev_port_is_pf(ns->nsim_dev_port)) {

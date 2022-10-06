@@ -74,6 +74,8 @@ struct netdevsim {
 	struct nsim_dev *nsim_dev;
 	struct nsim_dev_port *nsim_dev_port;
 
+	struct psp_dev *psp;
+
 	u64 tx_packets;
 	u64 tx_bytes;
 	struct u64_stats_sync syncp;
