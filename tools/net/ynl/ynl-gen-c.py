@@ -966,6 +966,16 @@ class CodeWriter:
                 line += '"' + define[1] + '"'
             self.p(line)
 
+    def write_struct_init(self, members):
+        longest = max([len(x) for x in members[0]])
+        longest += 1  # because we prepend a .
+        longest = ((longest + 7) // 8) * 8
+        for one in members:
+            line = '.' + one[0]
+            line += '\t' * ((longest - len(one[0]) - 1 + 7) // 8)
+            line += '= ' + one[1] + ','
+            self.p(line)
+
 
 scalars = {'u8', 'u16', 'u32', 'u64', 's32', 's64'}
 
@@ -1643,18 +1653,23 @@ def print_kernel_op_table(family, cw):
             continue
 
         cw.block_start()
-        cw.p(f".cmd\t= {op.enum_name},")
+        members = [('cmd', op.enum_name)]
         if 'dont-validate' in op:
-            cw.p(f".validate = {' | '.join([c_upper('genl-dont-validate-' + x) for x in op['dont-validate']])},")
+            members.append(('validate', ' | '.join([c_upper('genl-dont-validate-' + x) for x in op['dont-validate']])), )
         for op_mode in ['do', 'dump']:
             if op_mode in op:
                 name = c_lower(f"{family.name}-nl-{op_name}-{op_mode}it")
-                cw.p(f".{op_mode}it\t= {name},")
+                members.append((op_mode + 'it', name))
         if family.kernel_policy == 'per-op':
+            struct = Struct(family, op['attribute-set'],
+                            type_list=op['do']['request']['attributes'])
+
             name = c_lower(f"{family.name}-{op_name}-nl-policy")
-            cw.p(f".policy\t= {name},")
+            members.append(('policy', name))
+            members.append(('maxattr', struct.attr_max_val.enum_name + ' + 1'))
         if 'flags' in op:
-            cw.p(f".flags\t= {' | '.join([c_upper('genl-' + x) for x in op['flags']])},")
+            members.append(('flags', ' | '.join([c_upper('genl-' + x) for x in op['flags']])))
+        cw.write_struct_init(members)
         cw.block_end(line=',')
     cw.block_end(line=';')
     cw.nl()
