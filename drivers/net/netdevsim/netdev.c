@@ -292,7 +292,15 @@ static void nsim_setup(struct net_device *dev)
 	dev->max_mtu = ETH_MAX_MTU;
 }
 
+static int
+nsim_psp_set_config(struct psp_dev *psd, struct psp_dev_config *conf,
+		    struct netlink_ext_ack *extack)
+{
+	return 0;
+}
+
 static struct psp_dev_ops nsim_psp_ops = {
+	.set_config	= nsim_psp_set_config,
 };
 
 static struct psp_dev_caps nsim_psp_caps = {
