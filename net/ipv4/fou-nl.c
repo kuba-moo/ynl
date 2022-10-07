@@ -28,21 +28,21 @@ const struct nla_policy fou_nl_policy[FOU_ATTR_IFINDEX + 1] = {
 // Ops table for fou
 const struct genl_small_ops fou_nl_ops[3] = {
 	{
-		.cmd	= FOU_CMD_ADD,
-		.validate = GENL_DONT_VALIDATE_STRICT | GENL_DONT_VALIDATE_DUMP,
-		.doit	= fou_nl_add_doit,
-		.flags	= GENL_ADMIN_PERM,
+		.cmd		= FOU_CMD_ADD,
+		.validate	= GENL_DONT_VALIDATE_STRICT | GENL_DONT_VALIDATE_DUMP,
+		.doit		= fou_nl_add_doit,
+		.flags		= GENL_ADMIN_PERM,
 	},
 	{
-		.cmd	= FOU_CMD_DEL,
-		.validate = GENL_DONT_VALIDATE_STRICT | GENL_DONT_VALIDATE_DUMP,
-		.doit	= fou_nl_del_doit,
-		.flags	= GENL_ADMIN_PERM,
+		.cmd		= FOU_CMD_DEL,
+		.validate	= GENL_DONT_VALIDATE_STRICT | GENL_DONT_VALIDATE_DUMP,
+		.doit		= fou_nl_del_doit,
+		.flags		= GENL_ADMIN_PERM,
 	},
 	{
-		.cmd	= FOU_CMD_GET,
-		.validate = GENL_DONT_VALIDATE_STRICT | GENL_DONT_VALIDATE_DUMP,
-		.doit	= fou_nl_get_doit,
-		.dumpit	= fou_nl_get_dumpit,
+		.cmd		= FOU_CMD_GET,
+		.validate	= GENL_DONT_VALIDATE_STRICT | GENL_DONT_VALIDATE_DUMP,
+		.doit		= fou_nl_get_doit,
+		.dumpit		= fou_nl_get_dumpit,
 	},
 };
