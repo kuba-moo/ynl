@@ -114,6 +114,12 @@ properties:
               enum:
                 description: Name of the enum type used for the atttribute.
                 type: string
+              enum-as-flags:
+                description: |
+                  Treat the enum as flags. In most cases enum is either used as flags or as values.
+                  Sometimes, however, both forms are necessary, in which case header contains the enum
+                  form while specific attributes may request to convert the values into a bitfield.
+                type: boolean
               checks:
                 description: Kernel input validation.
                 type: object
