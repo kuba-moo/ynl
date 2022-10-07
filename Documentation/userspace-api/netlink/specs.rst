@@ -201,8 +201,16 @@ Note that the ``value`` of an attribute is defined only in its main set.
 enum
 ~~~~
 
-For integer types specifies that values in the attribute belong to a defined
-``enum``. Note that in case of ``flags`` the values may be combined.
+For integer types specifies that values in the attribute belong
+to an ``enum`` or ``flags`` from the ``definitions`` section.
+
+enum-as-flags
+~~~~~~~~~~~~~
+
+Treat ``enum`` as ``flags`` regardless of its type in ``definitions``.
+When both ``enum`` and ``flags`` forms are needed ``definitions`` should
+contain an ``enum`` and attributes which need the ``flags`` form should
+use this attribute.
 
 nested-attributes
 ~~~~~~~~~~~~~~~~~
