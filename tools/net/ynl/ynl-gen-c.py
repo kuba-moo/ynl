@@ -1756,9 +1756,10 @@ def render_uapi(family, cw):
                 if first and 'value-start' in const:
                     suffix = f" = {const['value-start']}" + suffix
                 first = False
-                item_name = item
                 if 'name-prefix' in const:
                     item_name = c_upper(const['name-prefix'] + item)
+                else:
+                    item_name = c_upper(f"{family.name}-{const['name']}-{item}")
                 cw.p(item_name + suffix)
             cw.block_end(line=';')
             cw.nl()
