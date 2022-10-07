@@ -206,11 +206,18 @@ class TypeUnused(Type):
     def attr_policy(self, cw):
         pass
 
+
 class TypeScalar(Type):
     def __init__(self, family, attr_set, attr):
         super().__init__(family, attr_set, attr)
 
+        self.is_bitfield = False
         if 'enum' in self.attr:
+            self.is_bitfield = family.consts[self.attr['enum']]['type'] == 'flags'
+        if 'enum-as-flags' in self.attr and self.attr['enum-as-flags']:
+            self.is_bitfield = True
+
+        if 'enum' in self.attr and not self.is_bitfield:
             self.type_name = f"enum {family.name}_{self.attr['enum'].replace('-', '_')}"
         else:
             self.type_name = '__' + self.type
@@ -227,10 +234,14 @@ class TypeScalar(Type):
         return t
 
     def _attr_policy(self, policy):
-        if 'flags-mask' in self.checks:
-            flags = self.family.consts[self.checks['flags-mask']]
-            flag_cnt = len(flags['entries'])
-            return f"NLA_POLICY_MASK({policy}, 0x{(1 << flag_cnt) - 1:x})"
+        if 'flags-mask' in self.checks or self.is_bitfield:
+            if self.is_bitfield:
+                mask = self.family.consts[self.attr['enum']].get_mask()
+            else:
+                flags = self.family.consts[self.checks['flags-mask']]
+                flag_cnt = len(flags['entries'])
+                mask = (1 << flag_cnt) - 1
+            return f"NLA_POLICY_MASK({policy}, 0x{mask:x})"
         elif 'min' in self.checks:
             return f"NLA_POLICY_MIN({policy}, {self.checks['min']})"
         elif 'enum' in self.attr:
@@ -533,6 +544,29 @@ class Struct:
         self.inherited = [x.replace('-', '_') for x in sorted(self._inherited)]
 
 
+class EnumSet:
+    def __init__(self, family, yaml):
+        self.yaml = yaml
+        self.family = family
+
+        self.type = yaml['type']
+        self.entries = yaml['entries']
+
+    def __getitem__(self, key):
+        return self.yaml[key]
+
+    def __contains__(self, key):
+        return key in self.yaml
+
+    def get_mask(self):
+        mask = 0
+        idx = self.yaml.get('value-start', 0)
+        for _ in self.entries:
+            mask |= 1 << idx
+            idx += 1
+        return mask
+
+
 class AttrSet:
     def __init__(self, family, yaml):
         self.yaml = yaml
@@ -711,7 +745,7 @@ class Family:
 
     def _dictify(self):
         for elem in self.yaml['definitions']:
-            self.consts[elem['name']] = elem
+            self.consts[elem['name']] = EnumSet(self, elem)
 
         for elem in self.yaml['attribute-sets']:
             attr_set = AttrSet(self, elem)
