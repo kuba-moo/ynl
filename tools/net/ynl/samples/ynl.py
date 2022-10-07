@@ -14,11 +14,14 @@ import yaml
 
 
 class Netlink:
+    # Netlink socket
     SOL_NETLINK = 270
 
+    NETLINK_ADD_MEMBERSHIP = 1
     NETLINK_CAP_ACK = 10
     NETLINK_EXT_ACK = 11
 
+    # Netlink message
     NLMSG_ERROR = 2
     NLMSG_DONE = 3
 
@@ -48,6 +51,11 @@ class Netlink:
 
     CTRL_ATTR_FAMILY_ID = 1
     CTRL_ATTR_FAMILY_NAME = 2
+    CTRL_ATTR_MAXATTR = 5
+    CTRL_ATTR_MCAST_GROUPS = 7
+
+    CTRL_ATTR_MCAST_GRP_NAME = 1
+    CTRL_ATTR_MCAST_GRP_ID = 2
 
     # Extack types
     NLMSGERR_ATTR_MSG = 1
@@ -175,9 +183,11 @@ class NlMsgs:
 genl_family_name_to_id = None
 
 
-def _genl_msg(nl_type, nl_flags, genl_cmd, genl_version):
+def _genl_msg(nl_type, nl_flags, genl_cmd, genl_version, seq=None):
     # we prepend length in _genl_msg_finalize()
-    nlmsg = struct.pack("HHII", nl_type, nl_flags, random.randint(1, 1024), 0)
+    if seq is None:
+        seq = random.randint(1, 1024)
+    nlmsg = struct.pack("HHII", nl_type, nl_flags, seq, 0)
     genlmsg = struct.pack("bbH", genl_cmd, genl_version, 0)
     return nlmsg + genlmsg
 
@@ -190,7 +200,8 @@ def _genl_load_families():
     with socket.socket(socket.AF_NETLINK, socket.SOCK_RAW, Netlink.NETLINK_GENERIC) as sock:
         sock.setsockopt(Netlink.SOL_NETLINK, Netlink.NETLINK_CAP_ACK, 1)
 
-        msg = _genl_msg(Netlink.GENL_ID_CTRL, Netlink.NLM_F_REQUEST | Netlink.NLM_F_ACK | Netlink.NLM_F_DUMP,
+        msg = _genl_msg(Netlink.GENL_ID_CTRL,
+                        Netlink.NLM_F_REQUEST | Netlink.NLM_F_ACK | Netlink.NLM_F_DUMP,
                         Netlink.CTRL_CMD_GETFAMILY, 1)
         msg = _genl_msg_finalize(msg)
 
@@ -210,15 +221,28 @@ def _genl_load_families():
                     return
 
                 gm = GenlMsg(nl_msg)
-                fam_id = None
-                fam_name = None
+                fam = dict()
                 for attr in gm.raw_attrs:
                     if attr.type == Netlink.CTRL_ATTR_FAMILY_ID:
-                        fam_id = attr.as_u16()
+                        fam['id'] = attr.as_u16()
                     elif attr.type == Netlink.CTRL_ATTR_FAMILY_NAME:
-                        fam_name = attr.as_strz()
-                if fam_id is not None and fam_name is not None:
-                    genl_family_name_to_id[fam_name] = fam_id
+                        fam['name'] = attr.as_strz()
+                    elif attr.type == Netlink.CTRL_ATTR_MAXATTR:
+                        fam['maxattr'] = attr.as_u32()
+                    elif attr.type == Netlink.CTRL_ATTR_MCAST_GROUPS:
+                        fam['mcast'] = dict()
+                        for entry in NlAttrs(attr.raw):
+                            mcast_name = None
+                            mcast_id = None
+                            for entry_attr in NlAttrs(entry.raw):
+                                if entry_attr.type == Netlink.CTRL_ATTR_MCAST_GRP_NAME:
+                                    mcast_name = entry_attr.as_strz()
+                                elif entry_attr.type == Netlink.CTRL_ATTR_MCAST_GRP_ID:
+                                    mcast_id = entry_attr.as_u32()
+                            if mcast_name and mcast_id is not None:
+                                fam['mcast'][mcast_name] = mcast_id
+                if 'name' in fam and 'id' in fam:
+                    genl_family_name_to_id[fam['name']] = fam
 
 
 class GenlMsg:
@@ -248,7 +272,9 @@ class GenlFamily:
         if genl_family_name_to_id is None:
             _genl_load_families()
 
-        self.family_id = genl_family_name_to_id[family_name]
+        self.genl_family = genl_family_name_to_id[family_name]
+        self.family_id = genl_family_name_to_id[family_name]['id']
+
 
 #
 # YNL implementation details.
@@ -295,6 +321,8 @@ class YnlAttrSpace:
 
 class YnlFamily:
     def __init__(self, def_path, schema=None):
+        self.include_raw = False
+
         with open(def_path, "r") as stream:
             self.yaml = yaml.safe_load(stream)
 
@@ -315,7 +343,10 @@ class YnlFamily:
             self._spaces[elem['name']] = YnlAttrSpace(self, elem)
 
         async_separation = 'async-prefix' in self.yaml['operations']
+        self.async_msg_ids = set()
+        self.async_msg_queue = []
         val = 0
+        max_val = 0
         for elem in self.yaml['operations']['list']:
             if not (async_separation and ('notify' in elem or 'event' in elem)):
                 if 'value' in elem:
@@ -323,6 +354,10 @@ class YnlFamily:
                 else:
                     elem['value'] = val
                 val += 1
+                max_val = max(val, max_val)
+
+            if 'notify' in elem or 'event' in elem:
+                self.async_msg_ids.add(elem['value'])
 
             self._ops[elem['name']] = elem
 
@@ -331,7 +366,21 @@ class YnlFamily:
             bound_f = functools.partial(self._op, elem['name'])
             setattr(self, op_name, bound_f)
 
+        self._op_array = [None] * max_val
+        for _, op in self._ops.items():
+            self._op_array[op['value']] = op
+            if 'notify' in op:
+                op['attribute-set'] = self._ops[op['notify']]['attribute-set']
+
         self.family = GenlFamily(self.yaml['name'])
+
+    def ntf_subscribe(self, mcast_name):
+        if mcast_name not in self.family.genl_family['mcast']:
+            raise Exception(f'Multicast group "{mcast_name}" not present in the family')
+
+        self.sock.bind((0, 0))
+        self.sock.setsockopt(Netlink.SOL_NETLINK, Netlink.NETLINK_ADD_MEMBERSHIP,
+                             self.family.genl_family['mcast'][mcast_name])
 
     def _add_attr(self, space, name, value):
         attr = self._spaces[space][name]
@@ -367,6 +416,16 @@ class YnlFamily:
                 raise Exception(f'Unknown {attr.type} {attr_spec["name"]} {attr_spec["type"]}')
         return rsp
 
+    def handle_ntf(self, nl_msg, genl_msg):
+        msg = dict()
+        if self.include_raw:
+            msg['nlmsg'] = nl_msg
+            msg['genlmsg'] = genl_msg
+        op = self._op_array[genl_msg.genl_cmd]
+        msg['name'] = op['name']
+        msg['msg'] = self._decode(genl_msg.raw_attrs, op['attribute-set'])
+        self.async_msg_queue.append(msg)
+
     def _op(self, method, vals, dump=False):
         op = self._ops[method]
 
@@ -374,7 +433,8 @@ class YnlFamily:
         if dump:
             nl_flags |= Netlink.NLM_F_DUMP
 
-        msg = _genl_msg(self.family.family_id, nl_flags, op['value'], 1)
+        req_seq = random.randint(1024, 65535)
+        msg = _genl_msg(self.family.family_id, nl_flags, op['value'], 1, req_seq)
         for name, value in vals.items():
             msg += self._add_attr(op['attribute-set'], name, value)
         msg = _genl_msg_finalize(msg)
@@ -396,6 +456,14 @@ class YnlFamily:
                     break
 
                 gm = GenlMsg(nl_msg)
+                # Check if this is a reply to our request
+                if nl_msg.nl_seq != req_seq or gm.genl_cmd != op['value']:
+                    if gm.genl_cmd in self.async_msg_ids:
+                        self.handle_ntf(nl_msg, gm)
+                    else:
+                        print('Unexpected message: ' + repr(gm))
+                        continue
+
                 rsp.append(self._decode(gm.raw_attrs, op['attribute-set']))
 
         if not rsp:
