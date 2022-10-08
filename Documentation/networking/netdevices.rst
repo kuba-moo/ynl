@@ -297,3 +297,11 @@ napi->poll:
 	Context:
 		 softirq
 		 will be called with interrupts disabled by netconsole.
+
+NETDEV_PRIVATE symbol namespace
+===============================
+
+Symbols exported as NETDEV_PRIVATE are free to use by all networking
+and driver code which flows via the main networking list and trees.
+Note that the inverse is not true, most symbols without the designation
+should not be used outside of networking either.
