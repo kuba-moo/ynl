@@ -382,7 +382,7 @@ class YnlFamily:
         self.sock.send(msg, 0)
 
         done = False
-        rsp = None
+        rsp = []
         while not done:
             reply = self.sock.recv(128 * 1024)
             nms = NlMsgs(reply, attr_space=self._spaces[op['attribute-set']])
@@ -396,6 +396,8 @@ class YnlFamily:
                     break
 
                 gm = GenlMsg(nl_msg)
-                rsp = self._decode(gm.raw_attrs, op['attribute-set'])
+                rsp.append(self._decode(gm.raw_attrs, op['attribute-set']))
 
-        return rsp
+        if not rsp:
+            return None
+        return rsp[0] if len(rsp) == 1 else rsp
