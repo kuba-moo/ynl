@@ -15,14 +15,26 @@ static const struct nla_policy psp_dev_get_nl_policy[PSP_A_DEV_ID + 1] = {
 	[PSP_A_DEV_ID] = NLA_POLICY_MIN(NLA_U32, 1),
 };
 
+// PSP_CMD_DEV_SET - do
+static const struct nla_policy psp_dev_set_nl_policy[PSP_A_DEV_PSP_VERSIONS_ENA + 1] = {
+	[PSP_A_DEV_ID] = NLA_POLICY_MIN(NLA_U32, 1),
+	[PSP_A_DEV_PSP_VERSIONS_ENA] = NLA_POLICY_MASK(NLA_U32, 0xf),
+};
+
 // Ops table for psp
-static const struct genl_ops psp_nl_ops[1] = {
+static const struct genl_ops psp_nl_ops[2] = {
 	{
 		.cmd		= PSP_CMD_DEV_GET,
 		.doit		= psp_nl_dev_get_doit,
 		.dumpit		= psp_nl_dev_get_dumpit,
 		.policy		= psp_dev_get_nl_policy,
 		.maxattr	= PSP_A_DEV_ID + 1,
+	},
+	{
+		.cmd		= PSP_CMD_DEV_SET,
+		.doit		= psp_nl_dev_set_doit,
+		.policy		= psp_dev_set_nl_policy,
+		.maxattr	= PSP_A_DEV_PSP_VERSIONS_ENA + 1,
 	},
 };
 

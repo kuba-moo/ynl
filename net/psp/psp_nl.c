@@ -22,7 +22,8 @@ psp_nl_dev_fill(struct psp_dev *psd, struct sk_buff *rsp,
 
 	if (nla_put_u32(rsp, PSP_A_DEV_ID, psd->id) ||
 	    nla_put_u32(rsp, PSP_A_DEV_IFINDEX, psd->main_netdev->ifindex) ||
-	    nla_put_u32(rsp, PSP_A_DEV_PSP_VERSIONS_CAP, psd->caps->versions))
+	    nla_put_u32(rsp, PSP_A_DEV_PSP_VERSIONS_CAP, psd->caps->versions) ||
+	    nla_put_u32(rsp, PSP_A_DEV_PSP_VERSIONS_ENA, psd->config.versions))
 		goto err_cancel_msg;
 
 	genlmsg_end(rsp, hdr);
@@ -131,4 +132,65 @@ int psp_nl_dev_get_dumpit(struct sk_buff *rsp, struct netlink_callback *cb)
 
 	cb->args[0] = index;
 	return rsp->len;
+}
+
+int psp_nl_dev_set_doit(struct sk_buff *skb, struct genl_info *info)
+{
+	struct psp_dev_config new_config;
+	struct psp_dev *psd;
+	int err;
+
+	if (GENL_REQ_ATTR_CHECK(info, PSP_A_DEV_ID))
+		return -EINVAL;
+
+	mutex_lock(&psp_devs_lock);
+	psd = xa_load(&psp_devs, nla_get_u32(info->attrs[PSP_A_DEV_ID]));
+	if (!psd) {
+		mutex_unlock(&psp_devs_lock);
+		return -ENODEV;
+	}
+
+	mutex_lock(&psd->lock);
+	mutex_unlock(&psp_devs_lock);
+
+	err = psp_dev_check_access(psd, genl_info_net(info));
+	if (err)
+		goto err_unlock;
+
+	memcpy(&new_config, &psd->config, sizeof(new_config));
+
+	if (info->attrs[PSP_A_DEV_PSP_VERSIONS_ENA]) {
+		new_config.versions =
+			nla_get_u32(info->attrs[PSP_A_DEV_PSP_VERSIONS_ENA]);
+		if (new_config.versions & ~psd->caps->versions) {
+			NL_SET_ERR_MSG(info->extack, "Requested PSP versions not supported by the device");
+			err = -EINVAL;
+			goto err_unlock;
+		}
+	} else {
+		NL_SET_ERR_MSG(info->extack, "No settings present");
+		err = -EINVAL;
+		goto err_unlock;
+	}
+
+	if (!memcmp(&new_config, &psd->config, sizeof(new_config))) {
+		err = 0;
+		goto err_unlock;
+	}
+
+	err = psd->ops->set_config(psd, &new_config, info->extack);
+	if (err)
+		goto err_unlock;
+
+	memcpy(&psd->config, &new_config, sizeof(new_config));
+
+	psp_nl_notify_dev(psd, PSP_CMD_DEV_CHANGE_NTF);
+
+	mutex_unlock(&psd->lock);
+
+	return 0;
+
+err_unlock:
+	mutex_unlock(&psd->lock);
+	return err;
 }

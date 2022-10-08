@@ -50,6 +50,10 @@ psp_dev_create(struct net_device *netdev,
 	static u32 last_id;
 	int err;
 
+	if (WARN_ON(!psd_caps->versions ||
+		    !psd_ops->set_config))
+		return NULL;
+
 	psd = kzalloc(sizeof(*psd), GFP_KERNEL);
 
 	psd->main_netdev = netdev;

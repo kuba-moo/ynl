@@ -7,6 +7,15 @@
 #include <linux/refcount.h>
 
 struct net_device;
+struct netlink_ext_ack;
+
+/**
+ * struct psp_dev_config - PSP device configuration
+ * @versions: PSP versions enabled on the device
+ */
+struct psp_dev_config {
+	u32 versions;
+};
 
 /**
  * struct psp_dev - PSP device struct allocated by the driver
@@ -29,6 +38,8 @@ struct psp_dev {
 	refcount_t refcnt;
 
 	u32 id;
+
+	struct psp_dev_config config;
 };
 
 /**
@@ -46,6 +57,13 @@ struct psp_dev_caps {
  * struct psp_dev_ops - netdev driver facing PSP callbacks
  */
 struct psp_dev_ops {
+	/**
+	 * @set_config: set configuration of a PSP device
+	 * Driver can inspect @psd->config for the previous configuration.
+	 * Core will update @psd->config with @config on success.
+	 */
+	int (*set_config)(struct psp_dev *psd, struct psp_dev_config *conf,
+			  struct netlink_ext_ack *extack);
 };
 
 struct psp_dev *

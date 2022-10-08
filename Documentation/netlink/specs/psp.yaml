@@ -31,6 +31,12 @@ attribute-sets:
         type: u32
         enum: version
         enum-as-flags: true
+      -
+        name: psp-versions-ena
+        doc: Bitmask of currently enabled (accepted on Rx) PSP versions.
+        type: u32
+        enum: version
+        enum-as-flags: true
 
 operations:
   list:
@@ -48,6 +54,7 @@ operations:
             - id
             - ifindex
             - psp-versions-cap
+            - psp-versions-ena
       dump:
         reply: *dev-all
     -
@@ -58,6 +65,20 @@ operations:
     -
       name: dev_del_ntf
       doc: Notification about device disappearing.
+      notify: dev_get
+      mcgrp: mgmt
+    -
+      name: dev_set
+      doc: Set the configuration of a PSP device.
+      attribute-set: dev
+      do:
+        request:
+          attributes:
+            - id
+            - psp-versions-ena
+    -
+      name: dev_change_ntf
+      doc: Notification about device configuration being changed.
       notify: dev_get
       mcgrp: mgmt
 
