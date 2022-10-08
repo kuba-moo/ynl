@@ -2,6 +2,7 @@
 
 import functools
 import jsonschema
+import os
 import random
 import socket
 import struct
@@ -16,6 +17,7 @@ class Netlink:
     SOL_NETLINK = 270
 
     NETLINK_CAP_ACK = 10
+    NETLINK_EXT_ACK = 11
 
     NLMSG_ERROR = 2
     NLMSG_DONE = 3
@@ -25,6 +27,9 @@ class Netlink:
     NLM_F_ROOT = 0x100
     NLM_F_MATCH = 0x200
     NLM_F_APPEND = 0x800
+
+    NLM_F_CAPPED = 0x100
+    NLM_F_ACK_TLVS = 0x200
 
     NLM_F_DUMP = NLM_F_ROOT | NLM_F_MATCH
 
@@ -43,6 +48,14 @@ class Netlink:
 
     CTRL_ATTR_FAMILY_ID = 1
     CTRL_ATTR_FAMILY_NAME = 2
+
+    # Extack types
+    NLMSGERR_ATTR_MSG = 1
+    NLMSGERR_ATTR_OFFS = 2
+    NLMSGERR_ATTR_COOKIE = 3
+    NLMSGERR_ATTR_POLICY = 4
+    NLMSGERR_ATTR_MISS_TYPE = 5
+    NLMSGERR_ATTR_MISS_NEST = 6
 
 
 class NlAttr:
@@ -79,9 +92,17 @@ class NlAttrs:
     def __iter__(self):
         yield from self.attrs
 
+    def __repr__(self):
+        msg = ''
+        for a in self.attrs:
+            if msg:
+                msg += '\n'
+            msg += repr(a)
+        return msg
+
 
 class NlMsg:
-    def __init__(self, msg, offset):
+    def __init__(self, msg, offset, attr_space=None):
         self.hdr = msg[offset:offset + 16]
 
         self.nl_len, self.nl_type, self.nl_flags, self.nl_seq, self.nl_portid = \
@@ -92,26 +113,58 @@ class NlMsg:
         self.error = 0
         self.done = 0
 
+        extack_off = None
         if self.nl_type == Netlink.NLMSG_ERROR:
             self.error = struct.unpack("i", self.raw[0:4])[0]
             self.done = 1
+            extack_off = 20
         elif self.nl_type == Netlink.NLMSG_DONE:
             self.done = 1
+            extack_off = 4
+
+        self.extack = None
+        if self.nl_flags & Netlink.NLM_F_ACK_TLVS and extack_off:
+            self.extack = dict()
+            extack_attrs = NlAttrs(self.raw[extack_off:])
+            for extack in extack_attrs:
+                if extack.type == Netlink.NLMSGERR_ATTR_MSG:
+                    self.extack['msg'] = extack.as_strz()
+                elif extack.type == Netlink.NLMSGERR_ATTR_MISS_TYPE:
+                    self.extack['miss-type'] = extack.as_u32()
+                elif extack.type == Netlink.NLMSGERR_ATTR_MISS_NEST:
+                    self.extack['miss-nest'] = extack.as_u32()
+                else:
+                    if 'unknown' not in self.extack:
+                        self.extack['unknown'] = []
+                    self.extack['unknown'].append(extack)
+
+            if attr_space:
+                # We don't have the ability to parse nests yet, so only do global
+                if 'miss-type' in self.extack and 'miss-nest' not in self.extack:
+                    miss_type = self.extack['miss-type']
+                    if len(attr_space.attr_list) > miss_type:
+                        spec = attr_space.attr_list[miss_type]
+                        desc = spec['name']
+                        if 'doc' in spec:
+                            desc += f" ({spec['doc']})"
+                        self.extack['miss-type'] = desc
 
     def __repr__(self):
         msg = f"nl_len = {self.nl_len} nl_flags = 0x{self.nl_flags:x} nl_type = {self.nl_type}\n"
         if self.error:
             msg += '\terror: ' + str(self.error)
+        if self.extack:
+            msg += '\textack: ' + repr(self.extack)
         return msg
 
 
 class NlMsgs:
-    def __init__(self, data):
+    def __init__(self, data, attr_space=None):
         self.msgs = []
 
         offset = 0
         while offset < len(data):
-            msg = NlMsg(data, offset)
+            msg = NlMsg(data, offset, attr_space=attr_space)
             offset += msg.nl_len
             self.msgs.append(msg)
 
@@ -253,6 +306,7 @@ class YnlFamily:
 
         self.sock = socket.socket(socket.AF_NETLINK, socket.SOCK_RAW, Netlink.NETLINK_GENERIC)
         self.sock.setsockopt(Netlink.SOL_NETLINK, Netlink.NETLINK_CAP_ACK, 1)
+        self.sock.setsockopt(Netlink.SOL_NETLINK, Netlink.NETLINK_EXT_ACK, 1)
 
         self._ops = dict()
         self._spaces = dict()
@@ -313,11 +367,14 @@ class YnlFamily:
                 raise Exception(f'Unknown {attr.type} {attr_spec["name"]} {attr_spec["type"]}')
         return rsp
 
-    def _op(self, method, vals):
+    def _op(self, method, vals, dump=False):
         op = self._ops[method]
 
-        msg = _genl_msg(self.family.family_id, Netlink.NLM_F_REQUEST | Netlink.NLM_F_ACK,
-                        op['value'], 1)
+        nl_flags = Netlink.NLM_F_REQUEST | Netlink.NLM_F_ACK
+        if dump:
+            nl_flags |= Netlink.NLM_F_DUMP
+
+        msg = _genl_msg(self.family.family_id, nl_flags, op['value'], 1)
         for name, value in vals.items():
             msg += self._add_attr(op['attribute-set'], name, value)
         msg = _genl_msg_finalize(msg)
@@ -328,10 +385,11 @@ class YnlFamily:
         rsp = None
         while not done:
             reply = self.sock.recv(128 * 1024)
-            nms = NlMsgs(reply)
+            nms = NlMsgs(reply, attr_space=self._spaces[op['attribute-set']])
             for nl_msg in nms:
                 if nl_msg.error:
-                    print("Netlink error:", nl_msg.error)
+                    print("Netlink error:", os.strerror(-nl_msg.error))
+                    print(nl_msg)
                     return
                 if nl_msg.done:
                     done = True
