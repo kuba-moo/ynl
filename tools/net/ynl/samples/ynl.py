@@ -426,6 +426,30 @@ class YnlFamily:
         msg['msg'] = self._decode(genl_msg.raw_attrs, op['attribute-set'])
         self.async_msg_queue.append(msg)
 
+    def check_ntf(self):
+        while True:
+            try:
+                reply = self.sock.recv(128 * 1024, socket.MSG_DONTWAIT)
+            except BlockingIOError:
+                return
+
+            nms = NlMsgs(reply)
+            for nl_msg in nms:
+                if nl_msg.error:
+                    print("Netlink error in ntf!?", os.strerror(-nl_msg.error))
+                    print(nl_msg)
+                    continue
+                if nl_msg.done:
+                    print("Netlink done while checking for ntf!?")
+                    continue
+
+                gm = GenlMsg(nl_msg)
+                if gm.genl_cmd not in self.async_msg_ids:
+                    print("Unexpected msg id done while checking for ntf", gm)
+                    continue
+
+                self.handle_ntf(nl_msg, gm)
+
     def _op(self, method, vals, dump=False):
         op = self._ops[method]
 
@@ -460,6 +484,7 @@ class YnlFamily:
                 if nl_msg.nl_seq != req_seq or gm.genl_cmd != op['value']:
                     if gm.genl_cmd in self.async_msg_ids:
                         self.handle_ntf(nl_msg, gm)
+                        continue
                     else:
                         print('Unexpected message: ' + repr(gm))
                         continue
