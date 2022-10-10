@@ -1016,9 +1016,9 @@ class CodeWriter:
             self.p(line)
 
     def write_struct_init(self, members):
-        longest = max([len(x) for x in members[0]])
+        longest = max([len(x[0]) for x in members])
         longest += 1  # because we prepend a .
-        longest = ((longest + 7) // 8) * 8
+        longest = ((longest + 8) // 8) * 8
         for one in members:
             line = '.' + one[0]
             line += '\t' * ((longest - len(one[0]) - 1 + 7) // 8)
