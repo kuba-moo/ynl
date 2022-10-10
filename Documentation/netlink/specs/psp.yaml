@@ -37,6 +37,31 @@ attribute-sets:
         type: u32
         enum: version
         enum-as-flags: true
+  -
+    name: keys
+    attributes:
+      -
+        name: pad
+        type: pad
+        value: 1
+      -
+        name: dev_id
+        doc: PSP device ID.
+        type: u32
+      -
+        name: version
+        doc: |
+          PSP versions (AEAD and protocol version) used by this association,
+          dictates the size of the key.
+        type: u32
+        enum: version
+      -
+        name: key
+        type: binary
+      -
+        name: spi
+        doc: Security Parameters Index (SPI) of the association.
+        type: u32
 
 operations:
   list:
@@ -81,6 +106,18 @@ operations:
       doc: Notification about device configuration being changed.
       notify: dev_get
       mcgrp: mgmt
+    -
+      name: tx_assoc_add
+      doc: Add a key to the Tx association database.
+      attribute-set: keys
+      do:
+        request:
+          attributes:
+            - version
+            - key
+            - spi
+        reply:
+          attributes: []
 
 mcast-groups:
   list:

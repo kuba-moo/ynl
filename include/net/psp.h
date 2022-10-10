@@ -52,6 +52,24 @@ struct psp_dev_caps {
 	 * Set this field to 0 to indicate PSP is not supported at all.
 	 */
 	u32 versions;
+
+	/**
+	 * @tx_assoc_drv_spc: size of driver-specific state in Tx assoc
+	 * Determines the size of struct psp_tx_assoc::drv_spc
+	 */
+	u32 tx_assoc_drv_spc;
+};
+
+#define PSP_MAX_KEY	16
+
+struct psp_tx_assoc {
+	refcount_t refcnt;
+
+	u32 spi;
+	u8 key[PSP_MAX_KEY];
+	u8 version;
+
+	u8 drv_data[] __aligned(8);
 };
 
 /**
@@ -65,6 +83,14 @@ struct psp_dev_ops {
 	 */
 	int (*set_config)(struct psp_dev *psd, struct psp_dev_config *conf,
 			  struct netlink_ext_ack *extack);
+
+	/**
+	 * @tx_assoc_add: add a Tx association
+	 * Install Tx association in the device. Core will allocate space
+	 * for the driver to use at drv_data.
+	 */
+	int (*tx_assoc_add)(struct psp_dev *psd, struct psp_tx_assoc *tas,
+			    struct netlink_ext_ack *extack);
 };
 
 struct psp_dev *
