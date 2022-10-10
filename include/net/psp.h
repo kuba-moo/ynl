@@ -26,6 +26,7 @@ struct psp_dev_config {
  * @lock:	instance lock, protects all fields
  * @refcnt:	reference count for the instance
  * @id:		instance id
+ * @config:	current device configuration
  */
 struct psp_dev {
 	struct net_device *main_netdev;
