@@ -62,6 +62,11 @@ attribute-sets:
         name: spi
         doc: Security Parameters Index (SPI) of the association.
         type: u32
+      -
+        name: sock_fd
+        doc: Sockets which should be bound to the association immediatelly (optional).
+        type: u32
+        multi-attr: true
 
 operations:
   list:
@@ -116,6 +121,7 @@ operations:
             - version
             - key
             - spi
+            - sock_fd
         reply:
           attributes: []
 

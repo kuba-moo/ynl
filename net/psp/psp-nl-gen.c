@@ -22,10 +22,11 @@ static const struct nla_policy psp_dev_set_nl_policy[PSP_A_DEV_PSP_VERSIONS_ENA 
 };
 
 // PSP_CMD_TX_ASSOC_ADD - do
-static const struct nla_policy psp_tx_assoc_add_nl_policy[PSP_A_KEYS_SPI + 1] = {
+static const struct nla_policy psp_tx_assoc_add_nl_policy[PSP_A_KEYS_SOCK_FD + 1] = {
 	[PSP_A_KEYS_VERSION] = NLA_POLICY_MAX(NLA_U32, 4),
 	[PSP_A_KEYS_KEY] = { .type = NLA_BINARY, },
 	[PSP_A_KEYS_SPI] = { .type = NLA_U32, },
+	[PSP_A_KEYS_SOCK_FD] = { .type = NLA_U32, },
 };
 
 // Ops table for psp
@@ -47,7 +48,7 @@ static const struct genl_ops psp_nl_ops[3] = {
 		.cmd		= PSP_CMD_TX_ASSOC_ADD,
 		.doit		= psp_nl_tx_assoc_add_doit,
 		.policy		= psp_tx_assoc_add_nl_policy,
-		.maxattr	= PSP_A_KEYS_SPI + 1,
+		.maxattr	= PSP_A_KEYS_SOCK_FD + 1,
 	},
 };
 
