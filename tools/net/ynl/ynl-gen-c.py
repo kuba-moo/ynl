@@ -360,6 +360,8 @@ class TypeBinary(Type):
         mem = '{ '
         if len(self.checks) == 1 and 'min-len' in self.checks:
             mem += '.len = ' + str(self.checks['min-len'])
+        elif len(self.checks) == 0:
+            mem += '.type = NLA_BINARY'
         else:
             raise Exception('Binary type not implemented, yet')
         mem += ', }'
