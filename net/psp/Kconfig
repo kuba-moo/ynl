@@ -3,7 +3,7 @@
 # PSP configuration
 #
 config PSP
-	tristate "PSP Security Protocol support"
+	bool "PSP Security Protocol support"
 	depends on INET
 	help
 	Enable kernel support for the PSP protocol.
