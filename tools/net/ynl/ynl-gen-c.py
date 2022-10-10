@@ -207,6 +207,17 @@ class TypeUnused(Type):
         pass
 
 
+class TypePad(Type):
+    def presence_type(self):
+        return ''
+
+    def _attr_typol(self):
+        return '.type = YNL_PT_REJECT, '
+
+    def attr_policy(self, cw):
+        pass
+
+
 class TypeScalar(Type):
     def __init__(self, family, attr_set, attr):
         super().__init__(family, attr_set, attr)
@@ -608,6 +619,8 @@ class AttrSet:
                 attr = TypeScalar(family, self, elem)
             elif elem['type'] == 'unused':
                 attr = TypeUnused(family, self, elem)
+            elif elem['type'] == 'pad':
+                attr = TypePad(family, self, elem)
             elif elem['type'] == 'flag':
                 attr = TypeFlag(family, self, elem)
             elif elem['type'] == 'string':
