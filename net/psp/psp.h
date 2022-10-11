@@ -14,4 +14,6 @@ int psp_dev_check_access(struct psp_dev *psd, struct net *net);
 
 void psp_nl_notify_dev(struct psp_dev *psd, u32 cmd);
 
+int psp_sock_tx_assoc_set(int fd, struct psp_tx_assoc *tas);
+
 #endif /* __PSP_PSP_H */

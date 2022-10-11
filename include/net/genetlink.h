@@ -488,6 +488,25 @@ static inline struct sk_buff *genlmsg_new(size_t payload, gfp_t flags)
 	return nlmsg_new(genlmsg_total_size(payload), flags);
 }
 
+static inline struct sk_buff *
+genlmsg_new_reply(struct genl_info *info, size_t payload, gfp_t flags,
+		  const struct genl_family *family, unsigned int cmd)
+{
+	struct sk_buff *skb;
+
+	skb = genlmsg_new(payload, flags);
+	if (!skb)
+		return NULL;
+
+	if (!genlmsg_put(skb, info->snd_portid, info->snd_seq,
+			 family, 0, cmd)) {
+		nlmsg_free(skb);
+		return NULL;
+	}
+
+	return skb;
+}
+
 /**
  * genl_set_err - report error to genetlink broadcast listeners
  * @family: the generic netlink family

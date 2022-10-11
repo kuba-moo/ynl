@@ -204,14 +204,36 @@ err_unlock:
 	return err;
 }
 
+static int psp_nl_tx_assoc_check_key_size(struct genl_info *info)
+{
+	size_t key_sz;
+
+	switch (nla_get_u32(info->attrs[PSP_A_KEYS_VERSION])) {
+	case PSP_VERSION_HDR0_AES_GCM_128:
+	case PSP_VERSION_HDR0_AES_GMAC_128:
+		key_sz = 8;
+		break;
+	case PSP_VERSION_HDR0_AES_GCM_256:
+	case PSP_VERSION_HDR0_AES_GMAC_256:
+		key_sz = 16;
+		break;
+	default:
+		/* can't happen b/c of policy but make compilers happy */
+		return -EINVAL;
+	}
+	if (nla_len(info->attrs[PSP_A_KEYS_KEY]) != key_sz) {
+		NL_SET_ERR_MSG(info->extack, "Invalid key size for selected protocol version");
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
 int psp_nl_tx_assoc_add_doit(struct sk_buff *skb, struct genl_info *info)
 {
 	struct psp_tx_assoc *tas;
 	struct psp_dev *psd;
 	struct sk_buff *rsp;
-	size_t key_sz;
-	u32 version;
-	void *hdr;
 	int err;
 
 	if (GENL_REQ_ATTR_CHECK(info, PSP_A_KEYS_DEV_ID) ||
@@ -225,60 +247,48 @@ int psp_nl_tx_assoc_add_doit(struct sk_buff *skb, struct genl_info *info)
 	if (IS_ERR(psd))
 		return PTR_ERR(psd);
 
-	version = nla_get_u32(info->attrs[PSP_A_KEYS_VERSION]);
-	switch (version) {
-	case PSP_VERSION_HDR0_AES_GCM_128:
-	case PSP_VERSION_HDR0_AES_GMAC_128:
-		key_sz = 8;
-		break;
-	case PSP_VERSION_HDR0_AES_GCM_256:
-	case PSP_VERSION_HDR0_AES_GMAC_256:
-		key_sz = 16;
-		break;
-	default:
-		/* can't happen b/c of policy but make compilers happy */
-		err = -EINVAL;
+	err = psp_nl_tx_assoc_check_key_size(info);
+	if (err)
 		goto err_unlock;
-	}
-	if (nla_len(info->attrs[PSP_A_KEYS_KEY]) != key_sz) {
-		NL_SET_ERR_MSG(info->extack, "Invalid key size for selected protocol version");
-		err = -EINVAL;
-		goto err_unlock;
-	}
 
-	rsp = genlmsg_new(GENLMSG_DEFAULT_SIZE, GFP_KERNEL);
+	rsp = genlmsg_new_reply(info, GENLMSG_DEFAULT_SIZE, GFP_KERNEL,
+				&psp_nl_family, PSP_CMD_TX_ASSOC_ADD);
 	if (!rsp) {
 		err = -ENOMEM;
 		goto err_unlock;
 	}
 
-	hdr = genlmsg_put(rsp, info->snd_portid, info->snd_seq,
-			  &psp_nl_family, 0, PSP_CMD_TX_ASSOC_ADD);
-	if (!hdr) {
-		err = -EMSGSIZE;
-		goto err_free_msg;
-	}
-
 	tas = kzalloc(struct_size(tas, drv_data, psd->caps->tx_assoc_drv_spc),
-		      GFP_KERNEL);
+		      GFP_KERNEL_ACCOUNT);
 	if (!tas) {
 		err = -ENOMEM;
 		goto err_free_msg;
 	}
 
-	tas->version = version;
-	tas->spi = nla_get_u32(info->attrs[PSP_A_KEYS_SPI]);
-	memcpy(tas->key, nla_data(info->attrs[PSP_A_KEYS_KEY]), key_sz);
 	refcount_set(&tas->refcnt, 1);
+
+	tas->version	= nla_get_u32(info->attrs[PSP_A_KEYS_VERSION]);
+	tas->spi	= nla_get_u32(info->attrs[PSP_A_KEYS_SPI]);
+	memcpy(tas->key, nla_data(info->attrs[PSP_A_KEYS_KEY]), key_sz);
 
 	err = psd->ops->tx_assoc_add(psd, tas, info->extack);
 	if (err)
 		goto err_free_tas;
 
+	if (info->attrs[PSP_A_KEYS_SOCK_FD]) {
+		int fd = nla_get_u32(info->attrs[PSP_A_KEYS_SOCK_FD]);
+
+		err = psp_sock_tx_assoc_set(fd, tas)
+		if (err)
+			goto err_dev_del;
+	}
+
 	mutex_unlock(&psd->lock);
 
 	return genlmsg_reply(rsp, info);
 
+err_dev_del:
+	psd->ops_tx_assoc_del(psd, tas);
 err_free_tas:
 	kfree(tas);
 err_free_msg:

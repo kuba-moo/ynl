@@ -41,6 +41,8 @@ struct psp_dev {
 	u32 id;
 
 	struct psp_dev_config config;
+
+	struct list_head active_socks;
 };
 
 /**
@@ -72,6 +74,13 @@ struct psp_tx_assoc {
 	u8 drv_data[] __aligned(8);
 };
 
+struct psp_sock_state {
+	struct psp_dev *psd;
+	struct psp_tx_assoc *tx;
+
+	struct list_head dev;
+};
+
 /**
  * struct psp_dev_ops - netdev driver facing PSP callbacks
  */
@@ -88,9 +97,12 @@ struct psp_dev_ops {
 	 * @tx_assoc_add: add a Tx association
 	 * Install Tx association in the device. Core will allocate space
 	 * for the driver to use at drv_data.
+	 * @tx_assoc_del: remove a Tx association
+	 * Remove Tx association from the device.
 	 */
 	int (*tx_assoc_add)(struct psp_dev *psd, struct psp_tx_assoc *tas,
 			    struct netlink_ext_ack *extack);
+	void (*tx_assoc_del)(struct psp_dev *psd, struct psp_tx_assoc *tas);
 };
 
 struct psp_dev *

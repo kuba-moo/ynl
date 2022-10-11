@@ -531,6 +531,9 @@ struct sock {
 							struct net_device *dev,
 							struct sk_buff *skb);
 #endif
+#ifdef CONFIG_PSP
+	struct psp_sock_state __rcu	*psp_state;
+#endif
 	void                    (*sk_destruct)(struct sock *sk);
 	struct sock_reuseport __rcu	*sk_reuseport_cb;
 #ifdef CONFIG_BPF_SYSCALL
