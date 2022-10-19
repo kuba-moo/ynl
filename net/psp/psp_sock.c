@@ -1,19 +1,15 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 
+#include <linux/file.h>
+#include <linux/net.h>
 #include <net/psp.h>
-
-static struct sock *psp_sock_from_fd(int fd)
-{
-
-
-}
 
 int psp_sock_tx_assoc_set(int fd, struct psp_tx_assoc *tas)
 {
-	struct psp_sock_state *pss, *old;
+	struct psp_sock_state *pss; //, *old;
 	struct socket *sock;
 	struct file *file;
-	struct sock *sk;
+//	struct sock *sk;
 	int err;
 
 	if (fd < 0)
@@ -37,8 +33,8 @@ int psp_sock_tx_assoc_set(int fd, struct psp_tx_assoc *tas)
 
 	pss->tx = tas;
 
-	old = rcu /* TODO: rcu lifetime for the pss */
-	rcu_assign_pointer(sk->psp_state, pss);
+//	old = rcu /* TODO: rcu lifetime for the pss */
+//	rcu_assign_pointer(sk->psp_state, pss);
 
 	fput(file);
 

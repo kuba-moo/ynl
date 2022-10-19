@@ -194,7 +194,7 @@ int psp_nl_dev_set_doit(struct sk_buff *skb, struct genl_info *info)
 
 static int psp_nl_tx_assoc_check_key_size(struct genl_info *info)
 {
-	size_t key_sz;
+	int key_sz;
 
 	switch (nla_get_u32(info->attrs[PSP_A_KEYS_VERSION])) {
 	case PSP_VERSION_HDR0_AES_GCM_128:
@@ -214,7 +214,7 @@ static int psp_nl_tx_assoc_check_key_size(struct genl_info *info)
 		return -EINVAL;
 	}
 
-	return 0;
+	return key_sz;
 }
 
 int psp_nl_tx_assoc_add_doit(struct sk_buff *skb, struct genl_info *info)
@@ -222,6 +222,7 @@ int psp_nl_tx_assoc_add_doit(struct sk_buff *skb, struct genl_info *info)
 	struct psp_tx_assoc *tas;
 	struct psp_dev *psd;
 	struct sk_buff *rsp;
+	int key_sz;
 	int err;
 
 	if (GENL_REQ_ATTR_CHECK(info, PSP_A_KEYS_DEV_ID) ||
@@ -236,8 +237,9 @@ int psp_nl_tx_assoc_add_doit(struct sk_buff *skb, struct genl_info *info)
 		return PTR_ERR(psd);
 
 	err = psp_nl_tx_assoc_check_key_size(info);
-	if (err)
+	if (err < 0)
 		goto err_unlock;
+	key_sz = err;
 
 	rsp = genlmsg_new_reply(info, GENLMSG_DEFAULT_SIZE, GFP_KERNEL,
 				&psp_nl_family, PSP_CMD_TX_ASSOC_ADD);
@@ -266,7 +268,7 @@ int psp_nl_tx_assoc_add_doit(struct sk_buff *skb, struct genl_info *info)
 	if (info->attrs[PSP_A_KEYS_SOCK_FD]) {
 		int fd = nla_get_u32(info->attrs[PSP_A_KEYS_SOCK_FD]);
 
-		err = psp_sock_tx_assoc_set(fd, tas)
+		err = psp_sock_tx_assoc_set(fd, tas);
 		if (err)
 			goto err_dev_del;
 	}
@@ -276,7 +278,7 @@ int psp_nl_tx_assoc_add_doit(struct sk_buff *skb, struct genl_info *info)
 	return genlmsg_reply(rsp, info);
 
 err_dev_del:
-	psd->ops_tx_assoc_del(psd, tas);
+	psd->ops->tx_assoc_del(psd, tas);
 err_free_tas:
 	kfree(tas);
 err_free_msg:
