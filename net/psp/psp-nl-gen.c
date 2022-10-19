@@ -30,7 +30,7 @@ static const struct nla_policy psp_tx_assoc_add_nl_policy[PSP_A_KEYS_SOCK_FD + 1
 };
 
 // Dummy reject-all policy
-static const struct nla_policy psp_dummy_nl_policy[2] = {
+static const struct nla_policy psp_dummy_nl_policy[1 + 1] = {
 };
 
 // Ops table for psp
@@ -75,8 +75,8 @@ struct genl_family psp_nl_family __ro_after_init = {
 	.netnsok	= true,
 	.parallel_ops	= true,
 	.module		= THIS_MODULE,
-	.small_ops	= psp_nl_ops,
-	.n_small_ops	= ARRAY_SIZE(psp_nl_ops),
+	.split_ops	= psp_nl_ops,
+	.n_split_ops	= ARRAY_SIZE(psp_nl_ops),
 	.mcgrps		= psp_nl_mcgrps,
 	.n_mcgrps	= ARRAY_SIZE(psp_nl_mcgrps),
 };
