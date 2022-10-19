@@ -34,6 +34,26 @@ psp_device_get_and_lock(struct net *net, struct nlattr *dev_id)
 	return psd;
 }
 
+int psp_device_get_locked(const struct genl_split_ops *ops,
+			  struct sk_buff *skb, struct genl_info *info)
+{
+	if (GENL_REQ_ATTR_CHECK(info, PSP_A_DEV_ID))
+		return -EINVAL;
+
+	info->user_ptr[0] = psp_device_get_and_lock(genl_info_net(info),
+						    info->attrs[PSP_A_DEV_ID]);
+	return PTR_ERR_OR_ZERO(info->user_ptr[0]);
+}
+
+void
+psp_device_unlock(const struct genl_split_ops *ops, struct sk_buff *skb,
+		  struct genl_info *info)
+{
+	struct psp_dev *psd = info->user_ptr[0];
+
+	mutex_unlock(&psd->lock);
+}
+
 static int
 psp_nl_dev_fill(struct psp_dev *psd, struct sk_buff *rsp,
 		u32 portid, u32 seq, int flags, u32 cmd)
@@ -82,37 +102,23 @@ void psp_nl_notify_dev(struct psp_dev *psd, u32 cmd)
 
 int psp_nl_dev_get_doit(struct sk_buff *req, struct genl_info *info)
 {
+	struct psp_dev *psd = info->user_ptr[0];
 	struct sk_buff *rsp;
-	struct psp_dev *psd;
 	int err;
 
-	if (GENL_REQ_ATTR_CHECK(info, PSP_A_DEV_ID))
-		return -EINVAL;
-
-	psd = psp_device_get_and_lock(genl_info_net(info),
-				      info->attrs[PSP_A_DEV_ID]);
-	if (IS_ERR(psd))
-		return PTR_ERR(psd);
-
 	rsp = genlmsg_new(GENLMSG_DEFAULT_SIZE, GFP_KERNEL);
-	if (!rsp) {
-		err = -ENOMEM;
-		goto err_unlock;
-	}
+	if (!rsp)
+		return -ENOMEM;
 
 	err = psp_nl_dev_fill(psd, rsp, info->snd_portid, info->snd_seq,
 			      0, PSP_CMD_DEV_GET);
 	if (err)
 		goto err_free_msg;
 
-	mutex_unlock(&psd->lock);
-
 	return genlmsg_reply(rsp, info);
 
 err_free_msg:
 	nlmsg_free(rsp);
-err_unlock:
-	mutex_unlock(&psd->lock);
 	return err;
 }
 
@@ -154,17 +160,9 @@ int psp_nl_dev_get_dumpit(struct sk_buff *rsp, struct netlink_callback *cb)
 
 int psp_nl_dev_set_doit(struct sk_buff *skb, struct genl_info *info)
 {
+	struct psp_dev *psd = info->user_ptr[0];
 	struct psp_dev_config new_config;
-	struct psp_dev *psd;
 	int err;
-
-	if (GENL_REQ_ATTR_CHECK(info, PSP_A_DEV_ID))
-		return -EINVAL;
-
-	psd = psp_device_get_and_lock(genl_info_net(info),
-				      info->attrs[PSP_A_DEV_ID]);
-	if (IS_ERR(psd))
-		return PTR_ERR(psd);
 
 	memcpy(&new_config, &psd->config, sizeof(new_config));
 
@@ -173,35 +171,25 @@ int psp_nl_dev_set_doit(struct sk_buff *skb, struct genl_info *info)
 			nla_get_u32(info->attrs[PSP_A_DEV_PSP_VERSIONS_ENA]);
 		if (new_config.versions & ~psd->caps->versions) {
 			NL_SET_ERR_MSG(info->extack, "Requested PSP versions not supported by the device");
-			err = -EINVAL;
-			goto err_unlock;
+			return -EINVAL;
 		}
 	} else {
 		NL_SET_ERR_MSG(info->extack, "No settings present");
-		err = -EINVAL;
-		goto err_unlock;
+		return -EINVAL;
 	}
 
-	if (!memcmp(&new_config, &psd->config, sizeof(new_config))) {
-		err = 0;
-		goto err_unlock;
-	}
+	if (!memcmp(&new_config, &psd->config, sizeof(new_config)))
+		return 0;
 
 	err = psd->ops->set_config(psd, &new_config, info->extack);
 	if (err)
-		goto err_unlock;
+		return err;
 
 	memcpy(&psd->config, &new_config, sizeof(new_config));
 
 	psp_nl_notify_dev(psd, PSP_CMD_DEV_CHANGE_NTF);
 
-	mutex_unlock(&psd->lock);
-
 	return 0;
-
-err_unlock:
-	mutex_unlock(&psd->lock);
-	return err;
 }
 
 static int psp_nl_tx_assoc_check_key_size(struct genl_info *info)
