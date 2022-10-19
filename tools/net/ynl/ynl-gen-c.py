@@ -738,7 +738,7 @@ class Family:
         self._load_nested_sets()
         self._load_all_notify()
 
-        self.kernel_policy = self.yaml.get('kernel-policy', 'per-op')
+        self.kernel_policy = self.yaml.get('kernel-policy', 'split')
         if self.kernel_policy == 'global':
             self._load_global_policy()
 
@@ -1709,7 +1709,7 @@ def print_kernel_op_table(family, cw):
             if op_mode in op:
                 name = c_lower(f"{family.name}-nl-{op_name}-{op_mode}it")
                 members.append((op_mode + 'it', name))
-        if family.kernel_policy == 'per-op':
+        if family.kernel_policy in {'per-op', 'split'}:
             struct = Struct(family, op['attribute-set'],
                             type_list=op['do']['request']['attributes'])
 
@@ -1997,7 +1997,7 @@ def main():
                 cw.nl()
 
             for op_name, op in parsed.ops.items():
-                if parsed.kernel_policy == 'per-op' and 'do' in op and 'event' not in op:
+                if parsed.kernel_policy in {'per-op', 'split'} and 'do' in op and 'event' not in op:
                     ri = RenderInfo(cw, parsed, args.mode, op, op_name, "do")
                     print_req_policy_fwd(cw, ri.struct['request'], op=op)
                     cw.nl()
@@ -2014,7 +2014,7 @@ def main():
                 cw.nl()
 
             for op_name, op in parsed.ops.items():
-                if parsed.kernel_policy == 'per-op':
+                if parsed.kernel_policy in {'per-op', 'split'}:
                     for op_mode in {'do', 'dump'}:
                         if op_mode in op and 'request' in op[op_mode]:
                             cw.p(f"// {op.enum_name} - {op_mode}")

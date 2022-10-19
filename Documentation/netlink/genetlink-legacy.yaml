@@ -37,8 +37,10 @@ properties:
   # End genetlink-c
   # Start genetlink-legacy
   kernel-policy:
-    description: Defines if the input policy in the kernel is global or per-operation, default is per-op.
-    enum: [per-op, global]
+    description: |
+      Defines if the input policy in the kernel is global, per-operation, or split per operation type.
+      Default is split.
+    enum: [split, per-op, global]
   # End genetlink-legacy
 
   definitions:
