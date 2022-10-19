@@ -1757,7 +1757,7 @@ def print_kernel_dummy_policy(family, cw):
             if 'request' not in op[op_mode]:
                 cw.p('// Dummy reject-all policy')
                 name = c_lower(f"{family.name}-dummy-nl-policy")
-                cw.block_start(line=f'static const struct nla_policy {name}[2] =')
+                cw.block_start(line=f'static const struct nla_policy {name}[1 + 1] =')
                 cw.block_end(line=';')
                 cw.nl()
                 return
@@ -1880,8 +1880,8 @@ def print_kernel_family_struct_src(family, cw):
         cw.p(f'.ops\t\t= {family.name}_nl_ops,')
         cw.p(f'.n_ops\t\t= ARRAY_SIZE({family.name}_nl_ops),')
     elif family.kernel_policy == 'split':
-        cw.p(f'.small_ops\t= {family.name}_nl_ops,')
-        cw.p(f'.n_small_ops\t= ARRAY_SIZE({family.name}_nl_ops),')
+        cw.p(f'.split_ops\t= {family.name}_nl_ops,')
+        cw.p(f'.n_split_ops\t= ARRAY_SIZE({family.name}_nl_ops),')
     if family.mcgrps['list']:
         cw.p(f'.mcgrps\t\t= {family.name}_nl_mcgrps,')
         cw.p(f'.n_mcgrps\t= ARRAY_SIZE({family.name}_nl_mcgrps),')
