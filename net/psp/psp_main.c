@@ -89,6 +89,34 @@ static void psp_dev_destroy(struct psp_dev *psd)
 	kfree(psd);
 }
 
+static struct notifier_block psp_netlink_notifier = {
+	.notifier_call = psp_netlink_notify,
+};
+
+static int __net_init psp_pernet_init(struct net *net)
+{
+	struct psp_pernet *psp_net = psp_get_pernet(net);
+
+	xa_init(&psp_net->sockets);
+	return 0;
+}
+
+static void __net_exit psp_pernet_exit(struct net *net)
+{
+	struct psp_pernet *psp_net = psp_get_pernet(net);
+
+	WARN_ON_ONCE(!xa_empty(&psp_net->sockets));
+}
+
+int psp_pernet_id;
+
+static struct pernet_operations psp_pernet_ops = {
+	.init = psp_pernet_init,
+	.exit = psp_pernet_exit,
+	.id = &psp_pernet_id,
+	.size = sizeof(struct psp_pernet),
+};
+
 /**
  * psp_dev_unregister() - unregister PSP device
  * @psd:	PSP device structure
@@ -114,9 +142,29 @@ EXPORT_SYMBOL_NS_GPL(psp_dev_unregister, NETDEV_PRIVATE);
 
 static int __init psp_init(void)
 {
+	int err;
+
 	mutex_init(&psp_devs_lock);
 
-	return genl_register_family(&psp_nl_family);
+	err = register_pernet_subsys(&psp_pernet_ops);
+	if (err)
+		return err;
+
+	err = netlink_register_notifier(&psp_netlink_notifier);
+	if (err)
+		goto err_unreg_pernet;
+
+	err = genl_register_family(&psp_nl_family);
+	if (err)
+		goto err_unreg_ntf;
+
+	return 0;
+
+err_unreg_ntf:
+	netlink_unregister_notifier(&psp_netlink_notifier);
+err_unreg_pernet:
+	unregister_pernet_subsys(&psp_pernet_ops);
+	return err;
 }
 
 subsys_initcall(psp_init);

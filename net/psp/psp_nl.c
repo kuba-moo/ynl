@@ -9,6 +9,8 @@
 #include "psp-nl-gen.h"
 #include "psp.h"
 
+/* Device stuff */
+
 static struct psp_dev *
 psp_device_get_and_lock(struct net *net, struct nlattr *dev_id)
 {
@@ -192,6 +194,72 @@ int psp_nl_dev_set_doit(struct sk_buff *skb, struct genl_info *info)
 	return 0;
 }
 
+/* Socket handling */
+
+static void psp_nl_sock_free(struct psp_nl_sock *psp_nl_sock)
+{
+	kfree(psp_nl_sock);
+}
+
+int psp_netlink_notify(struct notifier_block *nb, unsigned long state,
+		       void *_notify)
+{
+	struct netlink_notify *notify = _notify;
+	struct psp_nl_sock *psp_nl_sock;
+	struct psp_pernet *psp_net;
+
+	if (state != NETLINK_URELEASE || notify->protocol != NETLINK_GENERIC)
+		return NOTIFY_DONE;
+
+	psp_net = psp_get_pernet(notify->net);
+
+	psp_nl_sock = xa_erase(&psp_net->sockets, notify->portid);
+	if (psp_nl_sock)
+		psp_nl_sock_free(psp_nl_sock);
+
+	return NOTIFY_OK;
+}
+
+static struct psp_nl_sock *psp_nl_sock(struct sock *sk, struct genl_info *info)
+{
+	struct psp_pernet *psp_net = psp_get_pernet(genl_info_net(info));
+	struct psp_nl_sock *psp_nl_sock, *old;
+
+	if (!info->snd_portid)
+		return ERR_PTR(-EINVAL);
+
+	mutex_lock(&psp_net->sockets_lock);
+
+	psp_nl_sock = xa_load(&psp_net->sockets, info->snd_portid);
+	if (psp_nl_sock)
+		goto exit_unlock;
+
+	psp_nl_sock = kzalloc(sizeof(*psp_nl_sock), GFP_KERNEL);
+	if (!psp_nl_sock) {
+		psp_nl_sock = ERR_PTR(-ENOMEM);
+		goto exit_unlock;
+	}
+
+	old = xa_store(&psp_net->sockets, info->snd_portid, psp_nl_sock,
+		       GFP_KERNEL);
+	if (!old)
+		goto exit_unlock;
+	if (!xa_is_err(old)) {
+		WARN_ON_ONCE(1);
+		goto exit_unlock;
+	}
+
+	psp_nl_sock_free(psp_nl_sock);
+	psp_nl_sock = ERR_PTR(xa_err(old));
+
+exit_unlock:
+	mutex_unlock(&psp_net->sockets_lock);
+
+	return psp_nl_sock;
+}
+
+/* Key etc. */
+
 static int psp_nl_tx_assoc_check_key_size(struct genl_info *info)
 {
 	int key_sz;
@@ -219,6 +287,7 @@ static int psp_nl_tx_assoc_check_key_size(struct genl_info *info)
 
 int psp_nl_tx_assoc_add_doit(struct sk_buff *skb, struct genl_info *info)
 {
+	struct psp_nl_sock *psp_nl;
 	struct psp_tx_assoc *tas;
 	struct psp_dev *psd;
 	struct sk_buff *rsp;
@@ -230,6 +299,10 @@ int psp_nl_tx_assoc_add_doit(struct sk_buff *skb, struct genl_info *info)
 	    GENL_REQ_ATTR_CHECK(info, PSP_A_KEYS_KEY) ||
 	    GENL_REQ_ATTR_CHECK(info, PSP_A_KEYS_SPI))
 		return -EINVAL;
+
+	psp_nl = psp_nl_sock(skb->sk, info);
+	if (IS_ERR(psp_nl))
+		return PTR_ERR(psp_nl);
 
 	psd = psp_device_get_and_lock(genl_info_net(info),
 				      info->attrs[PSP_A_KEYS_DEV_ID]);

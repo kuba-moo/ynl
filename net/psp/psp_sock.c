@@ -3,6 +3,7 @@
 #include <linux/file.h>
 #include <linux/net.h>
 #include <net/psp.h>
+#include "psp.h"
 
 int psp_sock_tx_assoc_set(int fd, struct psp_tx_assoc *tas)
 {
