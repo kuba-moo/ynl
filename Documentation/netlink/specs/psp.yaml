@@ -38,16 +38,18 @@ attribute-sets:
         enum: version
         enum-as-flags: true
   -
-    name: keys
+    name: assoc
     attributes:
       -
         name: pad
         type: pad
         value: 1
       -
-        name: dev_id
+        name: dev-id
         doc: PSP device ID.
         type: u32
+        checks:
+          min: 1
       -
         name: version
         doc: |
@@ -56,15 +58,27 @@ attribute-sets:
         type: u32
         enum: version
       -
+        name: rx-key
+        type: nest
+        nested-attributes: keys
+      -
+        name: tx-key
+        type: nest
+        nested-attributes: keys
+      -
+        name: sock-fd
+        doc: Sockets which should be bound to the association immediatelly (optional).
+        type: u32
+  -
+    name: keys
+    attributes:
+      -
         name: key
         type: binary
+        value: 1
       -
         name: spi
         doc: Security Parameters Index (SPI) of the association.
-        type: u32
-      -
-        name: sock_fd
-        doc: Sockets which should be bound to the association immediatelly (optional).
         type: u32
 
 operations:
@@ -115,18 +129,36 @@ operations:
       notify: dev_get
       mcgrp: mgmt
     -
-      name: tx_assoc_add
-      doc: Add a key to the Tx association database.
-      attribute-set: keys
+      name: rx_assoc_alloc
+      doc: Allocate a new Rx key + SPI pair.
+      attribute-set: assoc
+      do:
+        request:
+          attributes:
+            - dev-id
+            - version
+        reply:
+          attributes:
+            - dev-id
+            - version
+            - rx-key
+        pre: psp-assoc-device-get-locked
+        post: psp-device-unlock
+    -
+      name: assoc_add
+      doc: Add a PSP association.
+      attribute-set: assoc
       do:
         request:
           attributes:
             - version
-            - key
-            - spi
-            - sock_fd
+            - tx-key
+            - rx-key
+            - sock-fd
         reply:
           attributes: []
+        pre: psp-assoc-device-get-locked
+        post: psp-device-unlock
 
 mcast-groups:
   list:

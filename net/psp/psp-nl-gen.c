@@ -21,12 +21,18 @@ static const struct nla_policy psp_dev_set_nl_policy[PSP_A_DEV_PSP_VERSIONS_ENA 
 	[PSP_A_DEV_PSP_VERSIONS_ENA] = NLA_POLICY_MASK(NLA_U32, 0xf),
 };
 
-// PSP_CMD_TX_ASSOC_ADD - do
-static const struct nla_policy psp_tx_assoc_add_nl_policy[PSP_A_KEYS_SOCK_FD + 1] = {
-	[PSP_A_KEYS_VERSION] = NLA_POLICY_MAX(NLA_U32, 4),
-	[PSP_A_KEYS_KEY] = { .type = NLA_BINARY, },
-	[PSP_A_KEYS_SPI] = { .type = NLA_U32, },
-	[PSP_A_KEYS_SOCK_FD] = { .type = NLA_U32, },
+// PSP_CMD_RX_ASSOC_ALLOC - do
+static const struct nla_policy psp_rx_assoc_alloc_nl_policy[PSP_A_ASSOC_VERSION + 1] = {
+	[PSP_A_ASSOC_DEV_ID] = NLA_POLICY_MIN(NLA_U32, 1),
+	[PSP_A_ASSOC_VERSION] = NLA_POLICY_MAX(NLA_U32, 4),
+};
+
+// PSP_CMD_ASSOC_ADD - do
+static const struct nla_policy psp_assoc_add_nl_policy[PSP_A_ASSOC_SOCK_FD + 1] = {
+	[PSP_A_ASSOC_VERSION] = NLA_POLICY_MAX(NLA_U32, 4),
+	[PSP_A_ASSOC_TX_KEY] = { .type = NLA_NEST, },
+	[PSP_A_ASSOC_RX_KEY] = { .type = NLA_NEST, },
+	[PSP_A_ASSOC_SOCK_FD] = { .type = NLA_U32, },
 };
 
 // Dummy reject-all policy
@@ -34,7 +40,7 @@ static const struct nla_policy psp_dummy_nl_policy[1 + 1] = {
 };
 
 // Ops table for psp
-static const struct genl_split_ops psp_nl_ops[4] = {
+static const struct genl_split_ops psp_nl_ops[5] = {
 	{
 		.cmd		= PSP_CMD_DEV_GET,
 		.pre_doit	= psp_device_get_locked,
@@ -58,10 +64,20 @@ static const struct genl_split_ops psp_nl_ops[4] = {
 		.maxattr	= PSP_A_DEV_PSP_VERSIONS_ENA,
 	},
 	{
-		.cmd		= PSP_CMD_TX_ASSOC_ADD,
-		.doit		= psp_nl_tx_assoc_add_doit,
-		.policy		= psp_tx_assoc_add_nl_policy,
-		.maxattr	= PSP_A_KEYS_SOCK_FD,
+		.cmd		= PSP_CMD_RX_ASSOC_ALLOC,
+		.pre_doit	= psp_assoc_device_get_locked,
+		.doit		= psp_nl_rx_assoc_alloc_doit,
+		.post_doit	= psp_device_unlock,
+		.policy		= psp_rx_assoc_alloc_nl_policy,
+		.maxattr	= PSP_A_ASSOC_VERSION,
+	},
+	{
+		.cmd		= PSP_CMD_ASSOC_ADD,
+		.pre_doit	= psp_assoc_device_get_locked,
+		.doit		= psp_nl_assoc_add_doit,
+		.post_doit	= psp_device_unlock,
+		.policy		= psp_assoc_add_nl_policy,
+		.maxattr	= PSP_A_ASSOC_SOCK_FD,
 	},
 };
 

@@ -260,6 +260,19 @@ exit_unlock:
 
 /* Key etc. */
 
+int psp_assoc_device_get_locked(const struct genl_split_ops *ops,
+				struct sk_buff *skb, struct genl_info *info);
+{
+	struct nlattr *id = info->attrs[PSP_A_ASSOC_DEV_ID];
+
+	if (GENL_REQ_ATTR_CHECK(info, PSP_A_ASSOC_DEV_ID))
+		return -EINVAL;
+
+	info->user_ptr[0] = psp_device_get_and_lock(genl_info_net(info), id);
+	return PTR_ERR_OR_ZERO(info->user_ptr[0]);
+
+}
+
 static int psp_nl_tx_assoc_check_key_size(struct genl_info *info)
 {
 	int key_sz;
@@ -285,11 +298,11 @@ static int psp_nl_tx_assoc_check_key_size(struct genl_info *info)
 	return key_sz;
 }
 
-int psp_nl_tx_assoc_add_doit(struct sk_buff *skb, struct genl_info *info)
+int psp_nl_assoc_add_doit(struct sk_buff *skb, struct genl_info *info)
 {
+	struct psp_dev *psd = info->user_ptr[0];
 	struct psp_nl_sock *psp_nl;
 	struct psp_tx_assoc *tas;
-	struct psp_dev *psd;
 	struct sk_buff *rsp;
 	int key_sz;
 	int err;
@@ -304,22 +317,15 @@ int psp_nl_tx_assoc_add_doit(struct sk_buff *skb, struct genl_info *info)
 	if (IS_ERR(psp_nl))
 		return PTR_ERR(psp_nl);
 
-	psd = psp_device_get_and_lock(genl_info_net(info),
-				      info->attrs[PSP_A_KEYS_DEV_ID]);
-	if (IS_ERR(psd))
-		return PTR_ERR(psd);
-
 	err = psp_nl_tx_assoc_check_key_size(info);
 	if (err < 0)
-		goto err_unlock;
+		return err;
 	key_sz = err;
 
 	rsp = genlmsg_new_reply(info, GENLMSG_DEFAULT_SIZE, GFP_KERNEL,
 				&psp_nl_family, PSP_CMD_TX_ASSOC_ADD);
-	if (!rsp) {
-		err = -ENOMEM;
-		goto err_unlock;
-	}
+	if (!rsp)
+		return -ENOMEM;
 
 	tas = kzalloc(struct_size(tas, drv_data, psd->caps->tx_assoc_drv_spc),
 		      GFP_KERNEL_ACCOUNT);
@@ -346,8 +352,6 @@ int psp_nl_tx_assoc_add_doit(struct sk_buff *skb, struct genl_info *info)
 			goto err_dev_del;
 	}
 
-	mutex_unlock(&psd->lock);
-
 	return genlmsg_reply(rsp, info);
 
 err_dev_del:
@@ -356,7 +360,5 @@ err_free_tas:
 	kfree(tas);
 err_free_msg:
 	nlmsg_free(rsp);
-err_unlock:
-	mutex_unlock(&psd->lock);
 	return err;
 }
