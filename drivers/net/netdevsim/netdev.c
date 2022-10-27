@@ -299,8 +299,24 @@ nsim_psp_set_config(struct psp_dev *psd, struct psp_dev_config *conf,
 	return 0;
 }
 
+static int
+nsim_rx_assoc_alloc(struct psp_dev *psd, u32 version,
+		    struct psp_key_parsed *assoc,
+		    struct netlink_ext_ack *extack)
+{
+	static unsigned int spi;
+	int i;
+
+	assoc->spi = ++spi;
+	for (i = 0; i < PSP_MAX_KEY; i++)
+		assoc->key[i] = spi + i;
+
+	return 0;
+}
+
 static struct psp_dev_ops nsim_psp_ops = {
 	.set_config	= nsim_psp_set_config,
+	.rx_assoc_alloc	= nsim_rx_assoc_alloc,
 };
 
 static struct psp_dev_caps nsim_psp_caps = {
