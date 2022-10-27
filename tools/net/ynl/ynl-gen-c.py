@@ -395,6 +395,9 @@ class TypeNest(Type):
     def _attr_typol(self):
         return f'.type = YNL_PT_NEST, .nest = &{self.nested_render_name}_nest, '
 
+    def _attr_policy(self, policy):
+        return '{ .type = NLA_NESTED, }'
+
     def attr_put(self, ri, var):
         self._attr_put_line(ri, var, f"{self.nested_render_name}_put(nlh, " +
                             f"{self.enum_name}, &{var}->{self.c_name})")
