@@ -84,7 +84,7 @@ attribute-sets:
 operations:
   list:
     -
-      name: dev_get
+      name: dev-get
       doc: Get / dump information about PSP capable devices on the system.
       value: 1
       attribute-set: dev
@@ -103,17 +103,17 @@ operations:
       dump:
         reply: *dev-all
     -
-      name: dev_add_ntf
+      name: dev-add-ntf
       doc: Notification about device appearing.
-      notify: dev_get
+      notify: dev-get
       mcgrp: mgmt
     -
-      name: dev_del_ntf
+      name: dev-del-ntf
       doc: Notification about device disappearing.
-      notify: dev_get
+      notify: dev-get
       mcgrp: mgmt
     -
-      name: dev_set
+      name: dev-set
       doc: Set the configuration of a PSP device.
       attribute-set: dev
       do:
@@ -124,12 +124,12 @@ operations:
         pre: psp-device-get-locked
         post: psp-device-unlock
     -
-      name: dev_change_ntf
+      name: dev-change-ntf
       doc: Notification about device configuration being changed.
-      notify: dev_get
+      notify: dev-get
       mcgrp: mgmt
     -
-      name: rx_assoc_alloc
+      name: rx-assoc-alloc
       doc: Allocate a new Rx key + SPI pair.
       attribute-set: assoc
       do:
@@ -145,7 +145,7 @@ operations:
         pre: psp-assoc-device-get-locked
         post: psp-device-unlock
     -
-      name: assoc_add
+      name: assoc-add
       doc: Add a PSP association.
       attribute-set: assoc
       do:
