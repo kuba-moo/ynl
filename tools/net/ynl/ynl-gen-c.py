@@ -1827,8 +1827,8 @@ def print_kernel_op_table(family, cw):
                 else:
                     members.append(('policy', c_lower(f"{family.name}-dummy-nl-policy")))
                     members.append(('maxattr', '1'))
-                if 'flags' in op:
-                    members.append(('flags', ' | '.join([c_upper('genl-' + x) for x in op['flags']])))
+                flags = (op['flags'] if 'flags' in op else []) + ['cmd-cap-' + op_mode]
+                members.append(('flags', ' | '.join([c_upper('genl-' + x) for x in flags])))
                 cw.write_struct_init(members)
                 cw.block_end(line=',')
 
