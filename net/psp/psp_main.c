@@ -52,7 +52,9 @@ psp_dev_create(struct net_device *netdev,
 
 	if (WARN_ON(!psd_caps->versions ||
 		    !psd_ops->set_config ||
-		    !psd_ops->tx_assoc_add))
+		    !psd_ops->rx_assoc_alloc ||
+		    !psd_ops->tx_assoc_add ||
+		    !psd_ops->tx_assoc_del))
 		return NULL;
 
 	psd = kzalloc(sizeof(*psd), GFP_KERNEL);
