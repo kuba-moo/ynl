@@ -48,12 +48,14 @@ static const struct genl_split_ops psp_nl_ops[5] = {
 		.post_doit	= psp_device_unlock,
 		.policy		= psp_dev_get_nl_policy,
 		.maxattr	= PSP_A_DEV_ID,
+		.flags		= GENL_CMD_CAP_DO,
 	},
 	{
 		.cmd		= PSP_CMD_DEV_GET,
 		.dumpit		= psp_nl_dev_get_dumpit,
 		.policy		= psp_dummy_nl_policy,
 		.maxattr	= 1,
+		.flags		= GENL_CMD_CAP_DUMP,
 	},
 	{
 		.cmd		= PSP_CMD_DEV_SET,
@@ -62,6 +64,7 @@ static const struct genl_split_ops psp_nl_ops[5] = {
 		.post_doit	= psp_device_unlock,
 		.policy		= psp_dev_set_nl_policy,
 		.maxattr	= PSP_A_DEV_PSP_VERSIONS_ENA,
+		.flags		= GENL_CMD_CAP_DO,
 	},
 	{
 		.cmd		= PSP_CMD_RX_ASSOC_ALLOC,
@@ -70,6 +73,7 @@ static const struct genl_split_ops psp_nl_ops[5] = {
 		.post_doit	= psp_device_unlock,
 		.policy		= psp_rx_assoc_alloc_nl_policy,
 		.maxattr	= PSP_A_ASSOC_VERSION,
+		.flags		= GENL_CMD_CAP_DO,
 	},
 	{
 		.cmd		= PSP_CMD_ASSOC_ADD,
@@ -78,6 +82,7 @@ static const struct genl_split_ops psp_nl_ops[5] = {
 		.post_doit	= psp_device_unlock,
 		.policy		= psp_assoc_add_nl_policy,
 		.maxattr	= PSP_A_ASSOC_SOCK_FD,
+		.flags		= GENL_CMD_CAP_DO,
 	},
 };
 
