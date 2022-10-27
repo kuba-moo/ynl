@@ -261,7 +261,7 @@ exit_unlock:
 /* Key etc. */
 
 int psp_assoc_device_get_locked(const struct genl_split_ops *ops,
-				struct sk_buff *skb, struct genl_info *info);
+				struct sk_buff *skb, struct genl_info *info)
 {
 	struct nlattr *id = info->attrs[PSP_A_ASSOC_DEV_ID];
 
@@ -273,11 +273,11 @@ int psp_assoc_device_get_locked(const struct genl_split_ops *ops,
 
 }
 
-static int psp_nl_tx_assoc_check_key_size(struct genl_info *info)
+static int psp_nl_assoc_get_key_size(struct genl_info *info)
 {
 	int key_sz;
 
-	switch (nla_get_u32(info->attrs[PSP_A_KEYS_VERSION])) {
+	switch (nla_get_u32(info->attrs[PSP_A_ASSOC_VERSION])) {
 	case PSP_VERSION_HDR0_AES_GCM_128:
 	case PSP_VERSION_HDR0_AES_GMAC_128:
 		key_sz = 8;
@@ -290,40 +290,66 @@ static int psp_nl_tx_assoc_check_key_size(struct genl_info *info)
 		/* can't happen b/c of policy but make compilers happy */
 		return -EINVAL;
 	}
-	if (nla_len(info->attrs[PSP_A_KEYS_KEY]) != key_sz) {
-		NL_SET_ERR_MSG(info->extack, "Invalid key size for selected protocol version");
-		return -EINVAL;
-	}
 
 	return key_sz;
+}
+
+int psp_nl_rx_assoc_alloc_doit(struct sk_buff *skb, struct genl_info *info)
+{
+	return 0;
+}
+
+static int
+psp_nl_parse_key(struct genl_info *info, u32 attr, struct psp_key_parsed *key)
+{
+	int key_sz;
+
+	key_sz = psp_nl_assoc_get_key_size(info);
+	if (key_sz < 0)
+		return key_sz;
+	return 0;
+	//if (nla_len(info->attrs[PSP_A_KEYS_KEY]) != key_sz) {
+	//	NL_SET_ERR_MSG(info->extack, "Invalid key size for selected protocol version");
+	//	return -EINVAL;
+	//}
+	/* TODO: parse out the key for assoc add */
+	/* TODO: expose the nla policy from YAML code */
+
+
+	//tas->version	= nla_get_u32(info->attrs[PSP_A_ASSOC_VERSION]);
+	//tas->spi	= nla_get_u32(info->attrs[PSP_A_ASSOC_SPI]);
+	//memcpy(tas->key, nla_data(info->attrs[PSP_A_ASSOC_KEY]), key_sz);
+
 }
 
 int psp_nl_assoc_add_doit(struct sk_buff *skb, struct genl_info *info)
 {
 	struct psp_dev *psd = info->user_ptr[0];
+	struct psp_key_parsed rx_key, tx_key;
 	struct psp_nl_sock *psp_nl;
 	struct psp_tx_assoc *tas;
 	struct sk_buff *rsp;
-	int key_sz;
 	int err;
 
-	if (GENL_REQ_ATTR_CHECK(info, PSP_A_KEYS_DEV_ID) ||
-	    GENL_REQ_ATTR_CHECK(info, PSP_A_KEYS_VERSION) ||
-	    GENL_REQ_ATTR_CHECK(info, PSP_A_KEYS_KEY) ||
-	    GENL_REQ_ATTR_CHECK(info, PSP_A_KEYS_SPI))
+	if (GENL_REQ_ATTR_CHECK(info, PSP_A_ASSOC_DEV_ID) ||
+	    GENL_REQ_ATTR_CHECK(info, PSP_A_ASSOC_VERSION) ||
+	    GENL_REQ_ATTR_CHECK(info, PSP_A_ASSOC_TX_KEY) ||
+	    GENL_REQ_ATTR_CHECK(info, PSP_A_ASSOC_RX_KEY))
 		return -EINVAL;
 
 	psp_nl = psp_nl_sock(skb->sk, info);
 	if (IS_ERR(psp_nl))
 		return PTR_ERR(psp_nl);
 
-	err = psp_nl_tx_assoc_check_key_size(info);
+	err = psp_nl_parse_key(info, PSP_A_ASSOC_RX_KEY, &rx_key);
 	if (err < 0)
 		return err;
-	key_sz = err;
+	err = psp_nl_parse_key(info, PSP_A_ASSOC_TX_KEY, &tx_key);
+	if (err < 0)
+		return err;
 
 	rsp = genlmsg_new_reply(info, GENLMSG_DEFAULT_SIZE, GFP_KERNEL,
-				&psp_nl_family, PSP_CMD_TX_ASSOC_ADD);
+				&psp_nl_family, PSP_CMD_ASSOC_ADD);
 	if (!rsp)
 		return -ENOMEM;
 
@@ -336,16 +362,12 @@ int psp_nl_assoc_add_doit(struct sk_buff *skb, struct genl_info *info)
 
 	refcount_set(&tas->refcnt, 1);
 
-	tas->version	= nla_get_u32(info->attrs[PSP_A_KEYS_VERSION]);
-	tas->spi	= nla_get_u32(info->attrs[PSP_A_KEYS_SPI]);
-	memcpy(tas->key, nla_data(info->attrs[PSP_A_KEYS_KEY]), key_sz);
-
 	err = psd->ops->tx_assoc_add(psd, tas, info->extack);
 	if (err)
 		goto err_free_tas;
 
-	if (info->attrs[PSP_A_KEYS_SOCK_FD]) {
-		int fd = nla_get_u32(info->attrs[PSP_A_KEYS_SOCK_FD]);
+	if (info->attrs[PSP_A_ASSOC_SOCK_FD]) {
+		int fd = nla_get_u32(info->attrs[PSP_A_ASSOC_SOCK_FD]);
 
 		err = psp_sock_tx_assoc_set(fd, tas);
 		if (err)

@@ -20,6 +20,9 @@ struct psp_pernet {
 struct psp_nl_sock {
 };
 
+struct psp_key_parsed {
+};
+
 static inline struct psp_pernet *psp_get_pernet(const struct net *net)
 {
 	return net_generic(net, psp_pernet_id);
