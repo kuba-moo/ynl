@@ -9,6 +9,37 @@
 #include "psp-nl-gen.h"
 #include "psp.h"
 
+/* Netlink helpers */
+
+static struct sk_buff *psp_nl_reply_new(struct genl_info *info)
+{
+	struct sk_buff *rsp;
+	void *hdr;
+
+	rsp = genlmsg_new(GENLMSG_DEFAULT_SIZE, GFP_KERNEL);
+	if (!rsp)
+		return NULL;
+
+	hdr = genlmsg_put_reply(rsp, info, &psp_nl_family, 0,
+				info->genlhdr->cmd);
+	if (!hdr) {
+		nlmsg_free(rsp);
+		return NULL;
+	}
+
+	return rsp;
+}
+
+static int psp_nl_reply_send(struct sk_buff *rsp, struct genl_info *info)
+{
+	/* Note that this *only* works with a single message per skb */
+	void *hdr = rsp->data + NLMSG_HDRLEN + GENL_HDRLEN;
+
+	genlmsg_end(rsp, hdr);
+
+	return genlmsg_reply(rsp, info);
+}
+
 /* Device stuff */
 
 static struct psp_dev *
@@ -340,8 +371,7 @@ int psp_nl_rx_assoc_alloc_doit(struct sk_buff *skb, struct genl_info *info)
 
 	version = nla_get_u32(info->attrs[PSP_A_ASSOC_VERSION]);
 
-	rsp = genlmsg_new_reply(info, GENLMSG_DEFAULT_SIZE, GFP_KERNEL,
-				&psp_nl_family, PSP_CMD_RX_ASSOC_ALLOC);
+	rsp = psp_nl_reply_new(info);
 	if (!rsp)
 		return -ENOMEM;
 
@@ -356,7 +386,7 @@ int psp_nl_rx_assoc_alloc_doit(struct sk_buff *skb, struct genl_info *info)
 		goto err_free_rsp;
 	}
 
-	return genlmsg_reply(rsp, info);
+	return psp_nl_reply_send(rsp, info);
 
 err_free_rsp:
 	nlmsg_free(rsp);
@@ -389,8 +419,7 @@ int psp_nl_assoc_add_doit(struct sk_buff *skb, struct genl_info *info)
 	if (err < 0)
 		return err;
 
-	rsp = genlmsg_new_reply(info, GENLMSG_DEFAULT_SIZE, GFP_KERNEL,
-				&psp_nl_family, PSP_CMD_ASSOC_ADD);
+	rsp = psp_nl_reply_new(info);
 	if (!rsp)
 		return -ENOMEM;
 
@@ -415,7 +444,7 @@ int psp_nl_assoc_add_doit(struct sk_buff *skb, struct genl_info *info)
 			goto err_dev_del;
 	}
 
-	return genlmsg_reply(rsp, info);
+	return psp_nl_reply_send(rsp, info);
 
 err_dev_del:
 	psd->ops->tx_assoc_del(psd, tas);
