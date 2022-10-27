@@ -54,10 +54,18 @@ static const u8 nla_attr_minlen[NLA_TYPE_MAX+1] = {
 #define MAX_POLICY_RECURSION_DEPTH	10
 
 static int __nla_validate_parse(const struct nlattr *head, int len, int maxtype,
-				const struct nla_policy *policy,
-				unsigned int validate,
-				struct netlink_ext_ack *extack,
-				struct nlattr **tb, unsigned int depth);
+				struct nla_validate_arg *valarg,
+				struct nlattr **tb);
+
+static void
+nla_valarg_descend(struct nla_validate_arg *in, const struct nla_policy *pt,
+		   unsigned int validate, struct nla_validate_arg *out)
+{
+	out->policy	= pt->nested_policy;
+	out->extack	= in->extack;
+	out->validate	= validate;
+	out->depth	= in->depth + 1;
+}
 
 static int validate_nla_bitfield32(const struct nlattr *nla,
 				   const u32 valid_flags_mask)
@@ -84,27 +92,29 @@ static int validate_nla_bitfield32(const struct nlattr *nla,
 
 static int nla_validate_array(const struct nlattr *head, int len, int maxtype,
 			      const struct nla_policy *policy,
-			      struct netlink_ext_ack *extack,
-			      unsigned int validate, unsigned int depth)
+			      unsigned int validate,
+			      struct nla_validate_arg *valarg)
 {
 	const struct nlattr *entry;
 	int rem;
 
 	nla_for_each_attr(entry, head, len, rem) {
+		struct nla_validate_arg valarg2;
 		int ret;
 
 		if (nla_len(entry) == 0)
 			continue;
 
 		if (nla_len(entry) < NLA_HDRLEN) {
-			NL_SET_ERR_MSG_ATTR_POL(extack, entry, policy,
+			NL_SET_ERR_MSG_ATTR_POL(valarg->extack, entry, policy,
 						"Array element too short");
 			return -ERANGE;
 		}
 
+		nla_valarg_descend(valarg, policy, validate, &valarg2);
+
 		ret = __nla_validate_parse(nla_data(entry), nla_len(entry),
-					   maxtype, policy, validate, extack,
-					   NULL, depth + 1);
+					   maxtype, &valarg2, NULL);
 		if (ret < 0)
 			return ret;
 	}
@@ -505,10 +515,12 @@ static int validate_nla(const struct nlattr *nla, int maxtype,
 		if (attrlen < NLA_HDRLEN)
 			goto out_err;
 		if (pt->nested_policy) {
+			struct nla_validate_arg valarg2;
+
+			nla_valarg_descend(valarg, pt, validate, &valarg2);
+
 			err = __nla_validate_parse(nla_data(nla), nla_len(nla),
-						   pt->len, pt->nested_policy,
-						   validate, valarg->extack,
-						   NULL, valarg->depth + 1);
+						   pt->len, &valarg2, NULL);
 			if (err < 0) {
 				/*
 				 * return directly to preserve the inner
@@ -531,8 +543,7 @@ static int validate_nla(const struct nlattr *nla, int maxtype,
 
 			err = nla_validate_array(nla_data(nla), nla_len(nla),
 						 pt->len, pt->nested_policy,
-						 valarg->extack, validate,
-						 valarg->depth);
+						 validate, valarg);
 			if (err < 0) {
 				/*
 				 * return directly to preserve the inner
@@ -599,16 +610,14 @@ out_err:
 }
 
 static int __nla_validate_parse(const struct nlattr *head, int len, int maxtype,
-				const struct nla_policy *policy,
-				unsigned int validate,
-				struct netlink_ext_ack *extack,
-				struct nlattr **tb, unsigned int depth)
+				struct nla_validate_arg *valarg,
+				struct nlattr **tb)
 {
 	const struct nlattr *nla;
 	int rem;
 
-	if (depth >= MAX_POLICY_RECURSION_DEPTH) {
-		NL_SET_ERR_MSG(extack,
+	if (valarg->depth >= MAX_POLICY_RECURSION_DEPTH) {
+		NL_SET_ERR_MSG(valarg->extack,
 			       "allowed policy recursion depth exceeded");
 		return -EINVAL;
 	}
@@ -620,24 +629,18 @@ static int __nla_validate_parse(const struct nlattr *head, int len, int maxtype,
 		u16 type = nla_type(nla);
 
 		if (type == 0 || type > maxtype) {
-			if (validate & NL_VALIDATE_MAXTYPE) {
-				NL_SET_ERR_MSG_ATTR(extack, nla,
+			if (valarg->validate & NL_VALIDATE_MAXTYPE) {
+				NL_SET_ERR_MSG_ATTR(valarg->extack, nla,
 						    "Unknown attribute type");
 				return -EINVAL;
 			}
 			continue;
 		}
 		type = array_index_nospec(type, maxtype + 1);
-		if (policy) {
-			struct nla_validate_arg valarg = {
-				.policy = policy,
-				.extack = extack,
-				.validate = validate,
-				.depth = depth,
-			};
+		if (valarg->policy) {
 			int err;
 
-			err = validate_nla(nla, maxtype, &valarg);
+			err = validate_nla(nla, maxtype, valarg);
 			if (err < 0)
 				return err;
 		}
@@ -649,8 +652,9 @@ static int __nla_validate_parse(const struct nlattr *head, int len, int maxtype,
 	if (unlikely(rem > 0)) {
 		pr_warn_ratelimited("netlink: %d bytes leftover after parsing attributes in process `%s'.\n",
 				    rem, current->comm);
-		NL_SET_ERR_MSG(extack, "bytes leftover after parsing attributes");
-		if (validate & NL_VALIDATE_TRAILING)
+		NL_SET_ERR_MSG(valarg->extack,
+			       "bytes leftover after parsing attributes");
+		if (valarg->validate & NL_VALIDATE_TRAILING)
 			return -EINVAL;
 	}
 
@@ -677,8 +681,13 @@ int __nla_validate(const struct nlattr *head, int len, int maxtype,
 		   const struct nla_policy *policy, unsigned int validate,
 		   struct netlink_ext_ack *extack)
 {
-	return __nla_validate_parse(head, len, maxtype, policy, validate,
-				    extack, NULL, 0);
+	struct nla_validate_arg valarg = {
+		.policy = policy,
+		.extack = extack,
+		.validate = validate,
+	};
+
+	return __nla_validate_parse(head, len, maxtype, &valarg, NULL);
 }
 EXPORT_SYMBOL(__nla_validate);
 
@@ -732,8 +741,13 @@ int __nla_parse(struct nlattr **tb, int maxtype,
 		const struct nla_policy *policy, unsigned int validate,
 		struct netlink_ext_ack *extack)
 {
-	return __nla_validate_parse(head, len, maxtype, policy, validate,
-				    extack, tb, 0);
+	struct nla_validate_arg valarg = {
+		.policy = policy,
+		.extack = extack,
+		.validate = validate,
+	};
+
+	return __nla_validate_parse(head, len, maxtype, &valarg, tb);
 }
 EXPORT_SYMBOL(__nla_parse);
 
