@@ -83,6 +83,9 @@ class NlAttr:
     def as_strz(self):
         return self.raw.decode('ascii')[:-1]
 
+    def as_bin(self):
+        return self.raw
+
     def __repr__(self):
         return f"[type:{self.type} len:{self._len}] {self.raw}"
 
@@ -412,6 +415,8 @@ class YnlFamily:
                 rsp[attr_spec['name']] = attr.as_u32()
             elif attr_spec["type"] == 'string':
                 rsp[attr_spec['name']] = attr.as_strz()
+            elif attr_spec["type"] == 'binary':
+                rsp[attr_spec['name']] = attr.as_bin()
             else:
                 raise Exception(f'Unknown {attr.type} {attr_spec["name"]} {attr_spec["type"]}')
         return rsp
