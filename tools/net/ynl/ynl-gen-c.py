@@ -258,7 +258,7 @@ class TypeScalar(Type):
         elif 'enum' in self.attr:
             enum = self.family.consts[self.attr['enum']]
             cnt = len(enum['entries'])
-            return f"NLA_POLICY_MAX({policy}, {cnt})"
+            return f"NLA_POLICY_MAX({policy}, {cnt - 1})"
         return super()._attr_policy(policy)
 
     def _attr_typol(self):
