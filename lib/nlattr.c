@@ -666,9 +666,7 @@ static int __nla_validate_parse(const struct nlattr *head, int len, int maxtype,
  * @head: head of attribute stream
  * @len: length of attribute stream
  * @maxtype: maximum attribute type to be expected
- * @policy: validation policy
- * @validate: validation strictness
- * @extack: extended ACK report struct
+ * @valarg: validation parameters
  *
  * Validates all attributes in the specified attribute stream against the
  * specified policy. Validation depends on the validate flags passed, see
@@ -678,16 +676,9 @@ static int __nla_validate_parse(const struct nlattr *head, int len, int maxtype,
  * Returns 0 on success or a negative error code.
  */
 int __nla_validate(const struct nlattr *head, int len, int maxtype,
-		   const struct nla_policy *policy, unsigned int validate,
-		   struct netlink_ext_ack *extack)
+		   struct nla_validate_arg *valarg)
 {
-	struct nla_validate_arg valarg = {
-		.policy = policy,
-		.extack = extack,
-		.validate = validate,
-	};
-
-	return __nla_validate_parse(head, len, maxtype, &valarg, NULL);
+	return __nla_validate_parse(head, len, maxtype, valarg, NULL);
 }
 EXPORT_SYMBOL(__nla_validate);
 

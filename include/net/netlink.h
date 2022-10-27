@@ -529,8 +529,7 @@ int nlmsg_notify(struct sock *sk, struct sk_buff *skb, u32 portid,
 		 unsigned int group, int report, gfp_t flags);
 
 int __nla_validate(const struct nlattr *head, int len, int maxtype,
-		   const struct nla_policy *policy, unsigned int validate,
-		   struct netlink_ext_ack *extack);
+		   struct nla_validate_arg *valarg);
 int __nla_parse(struct nlattr **tb, int maxtype,
 		const struct nlattr *head, int len,
 		struct nla_validate_arg *valarg);
@@ -876,8 +875,13 @@ static inline int nla_validate_deprecated(const struct nlattr *head, int len,
 					  const struct nla_policy *policy,
 					  struct netlink_ext_ack *extack)
 {
-	return __nla_validate(head, len, maxtype, policy, NL_VALIDATE_LIBERAL,
-			      extack);
+	struct nla_validate_arg valarg = {
+		.policy = policy,
+		.extack = extack,
+		.validate = NL_VALIDATE_LIBERAL,
+	};
+
+	return __nla_validate(head, len, maxtype, &valarg);
 }
 
 /**
@@ -898,8 +902,13 @@ static inline int nla_validate(const struct nlattr *head, int len, int maxtype,
 			       const struct nla_policy *policy,
 			       struct netlink_ext_ack *extack)
 {
-	return __nla_validate(head, len, maxtype, policy, NL_VALIDATE_STRICT,
-			      extack);
+	struct nla_validate_arg valarg = {
+		.policy = policy,
+		.extack = extack,
+		.validate = NL_VALIDATE_STRICT,
+	};
+
+	return __nla_validate(head, len, maxtype, &valarg);
 }
 
 /**
@@ -915,12 +924,17 @@ static inline int nlmsg_validate_deprecated(const struct nlmsghdr *nlh,
 					    const struct nla_policy *policy,
 					    struct netlink_ext_ack *extack)
 {
+	struct nla_validate_arg valarg = {
+		.policy = policy,
+		.extack = extack,
+		.validate = NL_VALIDATE_LIBERAL,
+	};
+
 	if (nlh->nlmsg_len < nlmsg_msg_size(hdrlen))
 		return -EINVAL;
 
 	return __nla_validate(nlmsg_attrdata(nlh, hdrlen),
-			      nlmsg_attrlen(nlh, hdrlen), maxtype,
-			      policy, NL_VALIDATE_LIBERAL, extack);
+			      nlmsg_attrlen(nlh, hdrlen), maxtype, &valarg);
 }
 
 
@@ -2014,8 +2028,14 @@ static inline int __nla_validate_nested(const struct nlattr *start, int maxtype,
 					unsigned int validate,
 					struct netlink_ext_ack *extack)
 {
-	return __nla_validate(nla_data(start), nla_len(start), maxtype, policy,
-			      validate, extack);
+	struct nla_validate_arg valarg = {
+		.policy = policy,
+		.extack = extack,
+		.validate = validate,
+	};
+
+	return __nla_validate(nla_data(start), nla_len(start), maxtype,
+			      &valarg);
 }
 
 static inline int
