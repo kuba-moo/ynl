@@ -515,6 +515,13 @@ enum netlink_validation {
 			    NL_VALIDATE_STRICT_ATTRS |\
 			    NL_VALIDATE_NESTED)
 
+struct nla_validate_arg {
+	const struct nla_policy *policy;
+	struct netlink_ext_ack *extack;
+	unsigned int validate;
+	unsigned int depth;
+};
+
 int netlink_rcv_skb(struct sk_buff *skb,
 		    int (*cb)(struct sk_buff *, struct nlmsghdr *,
 			      struct netlink_ext_ack *));

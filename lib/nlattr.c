@@ -387,10 +387,10 @@ static int nla_validate_mask(const struct nla_policy *pt,
 }
 
 static int validate_nla(const struct nlattr *nla, int maxtype,
-			const struct nla_policy *policy, unsigned int validate,
-			struct netlink_ext_ack *extack, unsigned int depth)
+			struct nla_validate_arg *valarg)
 {
-	u16 strict_start_type = policy[0].strict_start_type;
+	u16 strict_start_type = valarg->policy[0].strict_start_type;
+	unsigned int validate = valarg->validate;
 	const struct nla_policy *pt;
 	int minlen = 0, attrlen = nla_len(nla), type = nla_type(nla);
 	int err = -ERANGE;
@@ -402,7 +402,7 @@ static int validate_nla(const struct nlattr *nla, int maxtype,
 		return 0;
 
 	type = array_index_nospec(type, maxtype + 1);
-	pt = &policy[type];
+	pt = &valarg->policy[type];
 
 	BUG_ON(pt->type > NLA_TYPE_MAX);
 
@@ -410,7 +410,7 @@ static int validate_nla(const struct nlattr *nla, int maxtype,
 		pr_warn_ratelimited("netlink: '%s': attribute type %d has an invalid length.\n",
 				    current->comm, type);
 		if (validate & NL_VALIDATE_STRICT_ATTRS) {
-			NL_SET_ERR_MSG_ATTR_POL(extack, nla, pt,
+			NL_SET_ERR_MSG_ATTR_POL(valarg->extack, nla, pt,
 						"invalid attribute length");
 			return -EINVAL;
 		}
@@ -419,13 +419,13 @@ static int validate_nla(const struct nlattr *nla, int maxtype,
 	if (validate & NL_VALIDATE_NESTED) {
 		if ((pt->type == NLA_NESTED || pt->type == NLA_NESTED_ARRAY) &&
 		    !(nla->nla_type & NLA_F_NESTED)) {
-			NL_SET_ERR_MSG_ATTR_POL(extack, nla, pt,
+			NL_SET_ERR_MSG_ATTR_POL(valarg->extack, nla, pt,
 						"NLA_F_NESTED is missing");
 			return -EINVAL;
 		}
 		if (pt->type != NLA_NESTED && pt->type != NLA_NESTED_ARRAY &&
 		    pt->type != NLA_UNSPEC && (nla->nla_type & NLA_F_NESTED)) {
-			NL_SET_ERR_MSG_ATTR_POL(extack, nla, pt,
+			NL_SET_ERR_MSG_ATTR_POL(valarg->extack, nla, pt,
 						"NLA_F_NESTED not expected");
 			return -EINVAL;
 		}
@@ -433,9 +433,9 @@ static int validate_nla(const struct nlattr *nla, int maxtype,
 
 	switch (pt->type) {
 	case NLA_REJECT:
-		if (extack && pt->reject_message) {
-			NL_SET_BAD_ATTR(extack, nla);
-			extack->_msg = pt->reject_message;
+		if (valarg->extack && pt->reject_message) {
+			NL_SET_BAD_ATTR(valarg->extack, nla);
+			valarg->extack->_msg = pt->reject_message;
 			return -EINVAL;
 		}
 		err = -EINVAL;
@@ -507,8 +507,8 @@ static int validate_nla(const struct nlattr *nla, int maxtype,
 		if (pt->nested_policy) {
 			err = __nla_validate_parse(nla_data(nla), nla_len(nla),
 						   pt->len, pt->nested_policy,
-						   validate, extack, NULL,
-						   depth + 1);
+						   validate, valarg->extack,
+						   NULL, valarg->depth + 1);
 			if (err < 0) {
 				/*
 				 * return directly to preserve the inner
@@ -531,7 +531,8 @@ static int validate_nla(const struct nlattr *nla, int maxtype,
 
 			err = nla_validate_array(nla_data(nla), nla_len(nla),
 						 pt->len, pt->nested_policy,
-						 extack, validate, depth);
+						 valarg->extack, validate,
+						 valarg->depth);
 			if (err < 0) {
 				/*
 				 * return directly to preserve the inner
@@ -544,7 +545,7 @@ static int validate_nla(const struct nlattr *nla, int maxtype,
 
 	case NLA_UNSPEC:
 		if (validate & NL_VALIDATE_UNSPEC) {
-			NL_SET_ERR_MSG_ATTR(extack, nla,
+			NL_SET_ERR_MSG_ATTR(valarg->extack, nla,
 					    "Unsupported attribute");
 			return -EINVAL;
 		}
@@ -572,18 +573,18 @@ static int validate_nla(const struct nlattr *nla, int maxtype,
 	case NLA_VALIDATE_RANGE_WARN_TOO_LONG:
 	case NLA_VALIDATE_MIN:
 	case NLA_VALIDATE_MAX:
-		err = nla_validate_int_range(pt, nla, extack, validate);
+		err = nla_validate_int_range(pt, nla, valarg->extack, validate);
 		if (err)
 			return err;
 		break;
 	case NLA_VALIDATE_MASK:
-		err = nla_validate_mask(pt, nla, extack);
+		err = nla_validate_mask(pt, nla, valarg->extack);
 		if (err)
 			return err;
 		break;
 	case NLA_VALIDATE_FUNCTION:
 		if (pt->validate) {
-			err = pt->validate(nla, extack);
+			err = pt->validate(nla, valarg->extack);
 			if (err)
 				return err;
 		}
@@ -592,7 +593,7 @@ static int validate_nla(const struct nlattr *nla, int maxtype,
 
 	return 0;
 out_err:
-	NL_SET_ERR_MSG_ATTR_POL(extack, nla, pt,
+	NL_SET_ERR_MSG_ATTR_POL(valarg->extack, nla, pt,
 				"Attribute failed policy validation");
 	return err;
 }
@@ -628,9 +629,15 @@ static int __nla_validate_parse(const struct nlattr *head, int len, int maxtype,
 		}
 		type = array_index_nospec(type, maxtype + 1);
 		if (policy) {
-			int err = validate_nla(nla, maxtype, policy,
-					       validate, extack, depth);
+			struct nla_validate_arg valarg = {
+				.policy = policy,
+				.extack = extack,
+				.validate = validate,
+				.depth = depth,
+			};
+			int err;
 
+			err = validate_nla(nla, maxtype, &valarg);
 			if (err < 0)
 				return err;
 		}
