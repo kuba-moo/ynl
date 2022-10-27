@@ -64,6 +64,11 @@ struct psp_dev_caps {
 
 #define PSP_MAX_KEY	16
 
+struct psp_key_parsed {
+	u32 spi;
+	u8 key[PSP_MAX_KEY];
+};
+
 struct psp_tx_assoc {
 	refcount_t refcnt;
 
@@ -92,6 +97,15 @@ struct psp_dev_ops {
 	 */
 	int (*set_config)(struct psp_dev *psd, struct psp_dev_config *conf,
 			  struct netlink_ext_ack *extack);
+
+	/**
+	 * @rx_spi_alloc: allocate an Rx SPI+key pair
+	 * Allocate an ephemeral Rx SPI and resulting key.
+	 * This key should remain valid until key rotation.
+	 */
+	int (*rx_assoc_alloc)(struct psp_dev *psd, u32 version,
+			      struct psp_key_parsed *assoc,
+			      struct netlink_ext_ack *extack);
 
 	/**
 	 * @tx_assoc_add: add a Tx association

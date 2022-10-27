@@ -273,40 +273,25 @@ int psp_assoc_device_get_locked(const struct genl_split_ops *ops,
 
 }
 
-static int psp_nl_assoc_get_key_size(struct genl_info *info)
+static unsigned int psp_nl_assoc_key_size(u32 version)
 {
-	int key_sz;
-
-	switch (nla_get_u32(info->attrs[PSP_A_ASSOC_VERSION])) {
+	switch (version) {
 	case PSP_VERSION_HDR0_AES_GCM_128:
 	case PSP_VERSION_HDR0_AES_GMAC_128:
-		key_sz = 8;
-		break;
+		return 8;
 	case PSP_VERSION_HDR0_AES_GCM_256:
 	case PSP_VERSION_HDR0_AES_GMAC_256:
-		key_sz = 16;
-		break;
+		return 16;
 	default:
-		/* can't happen b/c of policy but make compilers happy */
-		return -EINVAL;
+		/* Netlink policies should prevent us from getting here */
+		WARN_ON_ONCE(1);
+		return 0;
 	}
-
-	return key_sz;
-}
-
-int psp_nl_rx_assoc_alloc_doit(struct sk_buff *skb, struct genl_info *info)
-{
-	return 0;
 }
 
 static int
 psp_nl_parse_key(struct genl_info *info, u32 attr, struct psp_key_parsed *key)
 {
-	int key_sz;
-
-	key_sz = psp_nl_assoc_get_key_size(info);
-	if (key_sz < 0)
-		return key_sz;
 	return 0;
 	//if (nla_len(info->attrs[PSP_A_KEYS_KEY]) != key_sz) {
 	//	NL_SET_ERR_MSG(info->extack, "Invalid key size for selected protocol version");
@@ -320,6 +305,62 @@ psp_nl_parse_key(struct genl_info *info, u32 attr, struct psp_key_parsed *key)
 	//tas->spi	= nla_get_u32(info->attrs[PSP_A_ASSOC_SPI]);
 	//memcpy(tas->key, nla_data(info->attrs[PSP_A_ASSOC_KEY]), key_sz);
 
+}
+
+static int
+psp_nl_put_key(struct sk_buff *skb, u32 attr, u32 version,
+	       struct psp_key_parsed *key)
+{
+	int key_sz = psp_nl_assoc_key_size(version);
+	void *nest;
+
+	nest = nla_nest_start(skb, attr);
+
+	if (nla_put_u32(skb, PSP_A_KEYS_SPI, key->spi) ||
+	    nla_put(skb, PSP_A_KEYS_KEY, key_sz, key->key)) {
+		nla_nest_cancel(skb, nest);
+		return -EMSGSIZE;
+	}
+
+	nla_nest_end(skb, nest);
+
+	return 0;
+}
+
+int psp_nl_rx_assoc_alloc_doit(struct sk_buff *skb, struct genl_info *info)
+{
+	struct psp_dev *psd = info->user_ptr[0];
+	struct psp_key_parsed key;
+	struct sk_buff *rsp;
+	u32 version;
+	int err;
+
+	if (GENL_REQ_ATTR_CHECK(info, PSP_A_ASSOC_VERSION))
+		return -EINVAL;
+
+	version = nla_get_u32(info->attrs[PSP_A_ASSOC_VERSION]);
+
+	rsp = genlmsg_new_reply(info, GENLMSG_DEFAULT_SIZE, GFP_KERNEL,
+				&psp_nl_family, PSP_CMD_RX_ASSOC_ALLOC);
+	if (!rsp)
+		return -ENOMEM;
+
+	err = psd->ops->rx_assoc_alloc(psd, version, &key, info->extack);
+	if (err)
+		goto err_free_rsp;
+
+	if (nla_put_u32(rsp, PSP_A_ASSOC_DEV_ID, psd->id) ||
+	    nla_put_u32(rsp, PSP_A_ASSOC_VERSION, version) ||
+	    psp_nl_put_key(rsp, PSP_A_ASSOC_RX_KEY, version, &key)) {
+		err = -EMSGSIZE;
+		goto err_free_rsp;
+	}
+
+	return genlmsg_reply(rsp, info);
+
+err_free_rsp:
+	nlmsg_free(rsp);
+	return err;
 }
 
 int psp_nl_assoc_add_doit(struct sk_buff *skb, struct genl_info *info)
