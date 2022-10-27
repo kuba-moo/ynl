@@ -558,11 +558,32 @@ static void genl_unregister_mc_groups(const struct genl_family *family)
 	}
 }
 
+static bool
+genl_check_policy(const struct nla_policy *policy, unsigned int maxattr)
+{
+	int i, cnt, want;
+
+	if (!policy || !maxattr)
+		return false;
+
+	cnt = 0;
+	want = policy[0].type == NLA_UNSPEC ? policy[0].req_attr_cnt : 0;
+
+	for (i = 0; i < maxattr; i++)
+		if (policy[i].required)
+			cnt++;
+
+	return WARN_ON(want != cnt);
+}
+
 static bool genl_split_op_check(const struct genl_split_ops *op)
 {
 	if (WARN_ON(hweight8(op->flags & (GENL_CMD_CAP_DO |
 					  GENL_CMD_CAP_DUMP)) != 1))
 		return true;
+	if (!genl_check_policy(op->policy, op->maxattr))
+		return true;
+
 	return false;
 }
 
@@ -590,6 +611,13 @@ static int genl_validate_ops(const struct genl_family *family)
 				return -EINVAL;
 		}
 	}
+
+	if (genl_check_policy(family->policy, family->maxattr))
+		return -EINVAL;
+	for (s = 0; s < family->n_ops; s++)
+		if (genl_check_policy(family->ops[s].policy,
+				      family->ops[s].maxattr))
+			return -EINVAL;
 
 	if (family->n_split_ops) {
 		if (genl_split_op_check(&family->split_ops[0]))

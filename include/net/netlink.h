@@ -218,6 +218,7 @@ enum nla_policy_validation {
  *	type-specific validation (e.g. range, function call), see
  *	&enum nla_policy_validation
  * @len: Type specific length of payload
+ * @required: attribute is required (NOTE: only enforced when parsing!)
  *
  * Policies are defined as arrays of this struct, the array must be
  * accessible by attribute type up to the highest identifier to be expected.
@@ -329,7 +330,8 @@ enum nla_policy_validation {
  */
 struct nla_policy {
 	u8		type;
-	u8		validation_type;
+	u8		validation_type:7;
+	u8		required:1;
 	u16		len;
 	union {
 		/**
@@ -352,8 +354,14 @@ struct nla_policy {
 		 * it should be set at least when new attributes are added to
 		 * the enum used by the policy, and be set to the new value that
 		 * was added to enforce strict validation from thereon.
+		 * @req_attr_cnt: number of required attributes
+		 * Pre-computed number of how many attributes in the policy
+		 * have the @required field set.
 		 */
-		u16 strict_start_type;
+		struct {
+			u16 strict_start_type;
+			u16 req_attr_cnt;
+		};
 
 		/* private: use NLA_POLICY_*() to set */
 		const u32 bitfield32_valid;
@@ -516,6 +524,7 @@ enum netlink_validation {
 			    NL_VALIDATE_NESTED)
 
 struct nla_validate_arg {
+	const struct nlattr *nest;
 	const struct nla_policy *policy;
 	struct netlink_ext_ack *extack;
 	unsigned int validate;

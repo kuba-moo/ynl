@@ -59,12 +59,29 @@ static int __nla_validate_parse(const struct nlattr *head, int len, int maxtype,
 
 static void
 nla_valarg_descend(struct nla_validate_arg *in, const struct nla_policy *pt,
+		   const struct nlattr *parent,
 		   unsigned int validate, struct nla_validate_arg *out)
 {
+	out->nest	= parent;
 	out->policy	= pt->nested_policy;
 	out->extack	= in->extack;
 	out->validate	= validate;
 	out->depth	= in->depth + 1;
+}
+
+static void
+nla_report_missing_attr(struct nlattr **tb, int maxtype,
+			struct nla_validate_arg *valarg)
+{
+	int i;
+
+	for (i = 0; i < maxtype + 1; i++)
+		if (valarg->policy[i].required && !tb[i]) {
+			NL_SET_ERR_ATTR_MISS(valarg->extack, valarg->nest, i);
+			return;
+		}
+
+	WARN_ON_ONCE(1);
 }
 
 static int validate_nla_bitfield32(const struct nlattr *nla,
@@ -111,7 +128,7 @@ static int nla_validate_array(const struct nlattr *head, int len, int maxtype,
 			return -ERANGE;
 		}
 
-		nla_valarg_descend(valarg, policy, validate, &valarg2);
+		nla_valarg_descend(valarg, policy, entry, validate, &valarg2);
 
 		ret = __nla_validate_parse(nla_data(entry), nla_len(entry),
 					   maxtype, &valarg2, NULL);
@@ -517,7 +534,7 @@ static int validate_nla(const struct nlattr *nla, int maxtype,
 		if (pt->nested_policy) {
 			struct nla_validate_arg valarg2;
 
-			nla_valarg_descend(valarg, pt, validate, &valarg2);
+			nla_valarg_descend(valarg, pt, nla, validate, &valarg2);
 
 			err = __nla_validate_parse(nla_data(nla), nla_len(nla),
 						   pt->len, &valarg2, NULL);
@@ -613,6 +630,7 @@ static int __nla_validate_parse(const struct nlattr *head, int len, int maxtype,
 				struct nla_validate_arg *valarg,
 				struct nlattr **tb)
 {
+	unsigned int req_found = 0, req_expect = 0;
 	const struct nlattr *nla;
 	int rem;
 
@@ -622,8 +640,12 @@ static int __nla_validate_parse(const struct nlattr *head, int len, int maxtype,
 		return -EINVAL;
 	}
 
-	if (tb)
+	if (tb) {
 		memset(tb, 0, sizeof(struct nlattr *) * (maxtype + 1));
+
+		if (valarg->policy && valarg->policy[0].type == NLA_UNSPEC)
+			req_expect = valarg->policy[0].req_attr_cnt;
+	}
 
 	nla_for_each_attr(nla, head, len, rem) {
 		u16 type = nla_type(nla);
@@ -643,10 +665,18 @@ static int __nla_validate_parse(const struct nlattr *head, int len, int maxtype,
 			err = validate_nla(nla, maxtype, valarg);
 			if (err < 0)
 				return err;
+
+			if (valarg->policy[type].required && !tb[type])
+				req_found++;
 		}
 
 		if (tb)
 			tb[type] = (struct nlattr *)nla;
+	}
+
+	if (req_expect && req_found != req_expect) {
+		nla_report_missing_attr(tb, maxtype, valarg);
+		return -EINVAL;
 	}
 
 	if (unlikely(rem > 0)) {
