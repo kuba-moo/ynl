@@ -531,9 +531,9 @@ int nlmsg_notify(struct sock *sk, struct sk_buff *skb, u32 portid,
 int __nla_validate(const struct nlattr *head, int len, int maxtype,
 		   const struct nla_policy *policy, unsigned int validate,
 		   struct netlink_ext_ack *extack);
-int __nla_parse(struct nlattr **tb, int maxtype, const struct nlattr *head,
-		int len, const struct nla_policy *policy, unsigned int validate,
-		struct netlink_ext_ack *extack);
+int __nla_parse(struct nlattr **tb, int maxtype,
+		const struct nlattr *head, int len,
+		struct nla_validate_arg *valarg);
 int nla_policy_len(const struct nla_policy *, int);
 struct nlattr *nla_find(const struct nlattr *head, int len, int attrtype);
 ssize_t nla_strscpy(char *dst, const struct nlattr *nla, size_t dstsize);
@@ -682,8 +682,13 @@ static inline int nla_parse(struct nlattr **tb, int maxtype,
 			    const struct nla_policy *policy,
 			    struct netlink_ext_ack *extack)
 {
-	return __nla_parse(tb, maxtype, head, len, policy,
-			   NL_VALIDATE_STRICT, extack);
+	struct nla_validate_arg valarg = {
+		.policy = policy,
+		.extack = extack,
+		.validate = NL_VALIDATE_STRICT,
+	};
+
+	return __nla_parse(tb, maxtype, head, len, &valarg);
 }
 
 /**
@@ -703,12 +708,13 @@ static inline int nla_parse(struct nlattr **tb, int maxtype,
  * Returns 0 on success or a negative error code.
  */
 static inline int nla_parse_deprecated(struct nlattr **tb, int maxtype,
-				       const struct nlattr *head, int len,
-				       const struct nla_policy *policy,
-				       struct netlink_ext_ack *extack)
+				       const struct nlattr *head, int len)
 {
-	return __nla_parse(tb, maxtype, head, len, policy,
-			   NL_VALIDATE_LIBERAL, extack);
+	struct nla_validate_arg valarg = {
+		.validate = NL_VALIDATE_LIBERAL,
+	};
+
+	return __nla_parse(tb, maxtype, head, len, &valarg);
 }
 
 /**
@@ -733,8 +739,13 @@ static inline int nla_parse_deprecated_strict(struct nlattr **tb, int maxtype,
 					      const struct nla_policy *policy,
 					      struct netlink_ext_ack *extack)
 {
-	return __nla_parse(tb, maxtype, head, len, policy,
-			   NL_VALIDATE_DEPRECATED_STRICT, extack);
+	struct nla_validate_arg valarg = {
+		.policy = policy,
+		.extack = extack,
+		.validate = NL_VALIDATE_DEPRECATED_STRICT,
+	};
+
+	return __nla_parse(tb, maxtype, head, len, &valarg);
 }
 
 /**
@@ -755,14 +766,19 @@ static inline int __nlmsg_parse(const struct nlmsghdr *nlh, int hdrlen,
 				unsigned int validate,
 				struct netlink_ext_ack *extack)
 {
+	struct nla_validate_arg valarg = {
+		.policy = policy,
+		.extack = extack,
+		.validate = validate,
+	};
+
 	if (nlh->nlmsg_len < nlmsg_msg_size(hdrlen)) {
 		NL_SET_ERR_MSG(extack, "Invalid header length");
 		return -EINVAL;
 	}
 
 	return __nla_parse(tb, maxtype, nlmsg_attrdata(nlh, hdrlen),
-			   nlmsg_attrlen(nlh, hdrlen), policy, validate,
-			   extack);
+			   nlmsg_attrlen(nlh, hdrlen), &valarg);
 }
 
 /**
@@ -1305,13 +1321,18 @@ static inline int nla_parse_nested(struct nlattr *tb[], int maxtype,
 				   const struct nla_policy *policy,
 				   struct netlink_ext_ack *extack)
 {
+	struct nla_validate_arg valarg = {
+		.policy = policy,
+		.extack = extack,
+		.validate = NL_VALIDATE_STRICT,
+	};
+
 	if (!(nla->nla_type & NLA_F_NESTED)) {
 		NL_SET_ERR_MSG_ATTR(extack, nla, "NLA_F_NESTED is missing");
 		return -EINVAL;
 	}
 
-	return __nla_parse(tb, maxtype, nla_data(nla), nla_len(nla), policy,
-			   NL_VALIDATE_STRICT, extack);
+	return __nla_parse(tb, maxtype, nla_data(nla), nla_len(nla), &valarg);
 }
 
 /**
@@ -1329,8 +1350,13 @@ static inline int nla_parse_nested_deprecated(struct nlattr *tb[], int maxtype,
 					      const struct nla_policy *policy,
 					      struct netlink_ext_ack *extack)
 {
-	return __nla_parse(tb, maxtype, nla_data(nla), nla_len(nla), policy,
-			   NL_VALIDATE_LIBERAL, extack);
+	struct nla_validate_arg valarg = {
+		.policy = policy,
+		.extack = extack,
+		.validate = NL_VALIDATE_LIBERAL,
+	};
+
+	return __nla_parse(tb, maxtype, nla_data(nla), nla_len(nla), &valarg);
 }
 
 /**

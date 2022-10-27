@@ -726,9 +726,7 @@ EXPORT_SYMBOL(nla_policy_len);
  * @maxtype: maximum attribute type to be expected
  * @head: head of attribute stream
  * @len: length of attribute stream
- * @policy: validation policy
- * @validate: validation strictness
- * @extack: extended ACK pointer
+ * @valarg: validation parameters
  *
  * Parses a stream of attributes and stores a pointer to each attribute in
  * the tb array accessible via the attribute type.
@@ -738,16 +736,9 @@ EXPORT_SYMBOL(nla_policy_len);
  */
 int __nla_parse(struct nlattr **tb, int maxtype,
 		const struct nlattr *head, int len,
-		const struct nla_policy *policy, unsigned int validate,
-		struct netlink_ext_ack *extack)
+		struct nla_validate_arg *valarg)
 {
-	struct nla_validate_arg valarg = {
-		.policy = policy,
-		.extack = extack,
-		.validate = validate,
-	};
-
-	return __nla_validate_parse(head, len, maxtype, &valarg, tb);
+	return __nla_validate_parse(head, len, maxtype, valarg, tb);
 }
 EXPORT_SYMBOL(__nla_parse);
 
