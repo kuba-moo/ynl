@@ -35,10 +35,6 @@ static const struct nla_policy psp_assoc_add_nl_policy[PSP_A_ASSOC_SOCK_FD + 1] 
 	[PSP_A_ASSOC_SOCK_FD] = { .type = NLA_U32, },
 };
 
-// Dummy reject-all policy
-static const struct nla_policy psp_dummy_nl_policy[1 + 1] = {
-};
-
 // Ops table for psp
 static const struct genl_split_ops psp_nl_ops[5] = {
 	{
@@ -51,11 +47,9 @@ static const struct genl_split_ops psp_nl_ops[5] = {
 		.flags		= GENL_CMD_CAP_DO,
 	},
 	{
-		.cmd		= PSP_CMD_DEV_GET,
-		.dumpit		= psp_nl_dev_get_dumpit,
-		.policy		= psp_dummy_nl_policy,
-		.maxattr	= 1,
-		.flags		= GENL_CMD_CAP_DUMP,
+		.cmd	= PSP_CMD_DEV_GET,
+		.dumpit	= psp_nl_dev_get_dumpit,
+		.flags	= GENL_CMD_CAP_DUMP,
 	},
 	{
 		.cmd		= PSP_CMD_DEV_SET,
