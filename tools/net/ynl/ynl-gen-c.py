@@ -1750,25 +1750,7 @@ def print_kernel_op_table_hdr(family, cw):
     print_kernel_op_table_fwd(family, cw, terminate=True)
 
 
-def print_kernel_dummy_policy(family, cw):
-    if family.kernel_policy == 'split':
-        for op_name, op in family.ops.items():
-            for op_mode in ['do', 'dump']:
-                if op.is_async or op_mode not in op:
-                    continue
-
-            if 'request' not in op[op_mode]:
-                cw.p('// Dummy reject-all policy')
-                name = c_lower(f"{family.name}-dummy-nl-policy")
-                cw.block_start(line=f'static const struct nla_policy {name}[1 + 1] =')
-                cw.block_end(line=';')
-                cw.nl()
-                return
-
-
 def print_kernel_op_table(family, cw):
-    print_kernel_dummy_policy(family, cw)
-
     print_kernel_op_table_fwd(family, cw, terminate=False)
     if family.kernel_policy == 'global' or family.kernel_policy == 'per-op':
         for op_name, op in family.ops.items():
@@ -1824,9 +1806,6 @@ def print_kernel_op_table(family, cw):
                     name = c_lower(f"{family.name}-{op_name}-nl-policy")
                     members.append(('policy', name))
                     members.append(('maxattr', struct.attr_max_val.enum_name))
-                else:
-                    members.append(('policy', c_lower(f"{family.name}-dummy-nl-policy")))
-                    members.append(('maxattr', '1'))
                 flags = (op['flags'] if 'flags' in op else []) + ['cmd-cap-' + op_mode]
                 members.append(('flags', ' | '.join([c_upper('genl-' + x) for x in flags])))
                 cw.write_struct_init(members)
