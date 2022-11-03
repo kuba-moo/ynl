@@ -396,7 +396,7 @@ class TypeNest(Type):
         return f'.type = YNL_PT_NEST, .nest = &{self.nested_render_name}_nest, '
 
     def _attr_policy(self, policy):
-        return '{ .type = NLA_NESTED, }'
+        return 'NLA_POLICY_NESTED(' + self.nested_render_name + '_nl_policy)'
 
     def attr_put(self, ri, var):
         self._attr_put_line(ri, var, f"{self.nested_render_name}_put(nlh, " +
@@ -1658,7 +1658,7 @@ def print_req_policy_fwd(cw, struct, op=None, terminate=True):
     if terminate:
         prefix = 'extern '
     else:
-        if kernel_can_gen_family_struct(struct.family):
+        if kernel_can_gen_family_struct(struct.family) and op:
             prefix = 'static '
         else:
             prefix = ''
@@ -2084,6 +2084,12 @@ def main():
 
     if args.mode == "kernel":
         if args.header:
+            if len(parsed.pure_nested_structs.items()) > 0:
+                cw.p('/* Common nested types */')
+            for attr_set, struct in sorted(parsed.pure_nested_structs.items()):
+                print_req_policy_fwd(cw, struct)
+            cw.nl()
+
             if parsed.kernel_policy == 'global':
                 cw.p(f"// Global operation policy for {parsed.name}")
 
@@ -2102,6 +2108,12 @@ def main():
             print_kernel_mcgrp_hdr(parsed, cw)
             print_kernel_family_struct_hdr(parsed, cw)
         else:
+            if len(parsed.pure_nested_structs.items()) > 0:
+                cw.p('/* Common nested types */')
+            for attr_set, struct in sorted(parsed.pure_nested_structs.items()):
+                print_req_policy(cw, struct)
+            cw.nl()
+
             if parsed.kernel_policy == 'global':
                 cw.p(f"// Global operation policy for {parsed.name}")
 
