@@ -321,21 +321,32 @@ static unsigned int psp_nl_assoc_key_size(u32 version)
 }
 
 static int
-psp_nl_parse_key(struct genl_info *info, u32 attr, struct psp_key_parsed *key)
+psp_nl_parse_key(struct genl_info *info, u32 attr, struct psp_key_parsed *key,
+		 unsigned int key_sz)
 {
+	struct nlattr *nest = info->attrs[attr];
+	struct nlattr *tb[PSP_A_KEYS_SPI + 1];
+	int err;
+
+	err = nla_parse_nested(tb, ARRAY_SIZE(tb) - 1, nest,
+			       psp_keys_nl_policy, info->extack);
+	if (err)
+		return err;
+
+	if (NL_REQ_ATTR_CHECK(info->extack, nest, tb, PSP_A_KEYS_KEY) ||
+	    NL_REQ_ATTR_CHECK(info->extack, nest, tb, PSP_A_KEYS_SPI))
+		return -EINVAL;
+
+	if (nla_len(tb[PSP_A_KEYS_KEY]) != key_sz) {
+		NL_SET_ERR_MSG_ATTR(info->extack, tb[PSP_A_KEYS_KEY],
+				    "incorrect key length");
+		return -EINVAL;
+	}
+
+	key->spi = nla_get_u32(tb[PSP_A_KEYS_SPI]);
+	memcpy(key->key, nla_data(tb[PSP_A_KEYS_KEY]), key_sz);
+
 	return 0;
-	//if (nla_len(info->attrs[PSP_A_KEYS_KEY]) != key_sz) {
-	//	NL_SET_ERR_MSG(info->extack, "Invalid key size for selected protocol version");
-	//	return -EINVAL;
-	//}
-	/* TODO: parse out the key for assoc add */
-	/* TODO: expose the nla policy from YAML code */
-
-
-	//tas->version	= nla_get_u32(info->attrs[PSP_A_ASSOC_VERSION]);
-	//tas->spi	= nla_get_u32(info->attrs[PSP_A_ASSOC_SPI]);
-	//memcpy(tas->key, nla_data(info->attrs[PSP_A_ASSOC_KEY]), key_sz);
-
 }
 
 static int
@@ -400,6 +411,8 @@ int psp_nl_assoc_add_doit(struct sk_buff *skb, struct genl_info *info)
 	struct psp_nl_sock *psp_nl;
 	struct psp_tx_assoc *tas;
 	struct sk_buff *rsp;
+	unsigned int key_sz;
+	u32 version;
 	int err;
 
 	if (GENL_REQ_ATTR_CHECK(info, PSP_A_ASSOC_DEV_ID) ||
@@ -412,10 +425,15 @@ int psp_nl_assoc_add_doit(struct sk_buff *skb, struct genl_info *info)
 	if (IS_ERR(psp_nl))
 		return PTR_ERR(psp_nl);
 
-	err = psp_nl_parse_key(info, PSP_A_ASSOC_RX_KEY, &rx_key);
+	version = nla_get_u32(info->attrs[PSP_A_ASSOC_VERSION]);
+	key_sz = psp_nl_assoc_key_size(version);
+	if (!key_sz)
+		return -EINVAL;
+
+	err = psp_nl_parse_key(info, PSP_A_ASSOC_RX_KEY, &rx_key, key_sz);
 	if (err < 0)
 		return err;
-	err = psp_nl_parse_key(info, PSP_A_ASSOC_TX_KEY, &tx_key);
+	err = psp_nl_parse_key(info, PSP_A_ASSOC_TX_KEY, &tx_key, key_sz);
 	if (err < 0)
 		return err;
 
