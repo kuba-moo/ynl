@@ -300,9 +300,9 @@ nsim_psp_set_config(struct psp_dev *psd, struct psp_dev_config *conf,
 }
 
 static int
-nsim_rx_assoc_alloc(struct psp_dev *psd, u32 version,
-		    struct psp_key_parsed *assoc,
-		    struct netlink_ext_ack *extack)
+nsim_rx_spi_alloc(struct psp_dev *psd, u32 version,
+		  struct psp_key_parsed *assoc,
+		  struct netlink_ext_ack *extack)
 {
 	static unsigned int spi;
 	int i;
@@ -314,21 +314,23 @@ nsim_rx_assoc_alloc(struct psp_dev *psd, u32 version,
 	return 0;
 }
 
-static int nsim_tx_assoc_add(struct psp_dev *psd, struct psp_tx_assoc *tas,
-			     struct netlink_ext_ack *extack)
+static int nsim_assoc_add(struct psp_dev *psd, struct psp_assoc *pas,
+			  struct netlink_ext_ack *extack)
 {
+	pr_info("PSP assoc add: rx:%u tx:%u\n", pas->rx.spi, pas->tx.spi);
+
 	return 0;
 }
 
-static void nsim_tx_assoc_del(struct psp_dev *psd, struct psp_tx_assoc *tas)
+static void nsim_assoc_del(struct psp_dev *psd, struct psp_assoc *tas)
 {
 }
 
 static struct psp_dev_ops nsim_psp_ops = {
 	.set_config	= nsim_psp_set_config,
-	.rx_assoc_alloc	= nsim_rx_assoc_alloc,
-	.tx_assoc_add	= nsim_tx_assoc_add,
-	.tx_assoc_del	= nsim_tx_assoc_del,
+	.rx_spi_alloc	= nsim_rx_spi_alloc,
+	.assoc_add	= nsim_assoc_add,
+	.assoc_del	= nsim_assoc_del,
 };
 
 static struct psp_dev_caps nsim_psp_caps = {

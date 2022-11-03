@@ -386,7 +386,7 @@ int psp_nl_rx_assoc_alloc_doit(struct sk_buff *skb, struct genl_info *info)
 	if (!rsp)
 		return -ENOMEM;
 
-	err = psd->ops->rx_assoc_alloc(psd, version, &key, info->extack);
+	err = psd->ops->rx_spi_alloc(psd, version, &key, info->extack);
 	if (err)
 		goto err_free_rsp;
 
@@ -407,9 +407,8 @@ err_free_rsp:
 int psp_nl_assoc_add_doit(struct sk_buff *skb, struct genl_info *info)
 {
 	struct psp_dev *psd = info->user_ptr[0];
-	struct psp_key_parsed rx_key, tx_key;
 	struct psp_nl_sock *psp_nl;
-	struct psp_tx_assoc *tas;
+	struct psp_assoc *pas;
 	struct sk_buff *rsp;
 	unsigned int key_sz;
 	u32 version;
@@ -430,34 +429,33 @@ int psp_nl_assoc_add_doit(struct sk_buff *skb, struct genl_info *info)
 	if (!key_sz)
 		return -EINVAL;
 
-	err = psp_nl_parse_key(info, PSP_A_ASSOC_RX_KEY, &rx_key, key_sz);
+	pas = kzalloc(struct_size(pas, drv_data, psd->caps->assoc_drv_spc),
+		      GFP_KERNEL_ACCOUNT);
+	if (!pas)
+		return -ENOMEM;
+
+	pas->psd = psd;
+	refcount_set(&pas->refcnt, 1);
+
+	err = psp_nl_parse_key(info, PSP_A_ASSOC_RX_KEY, &pas->rx, key_sz);
 	if (err < 0)
-		return err;
-	err = psp_nl_parse_key(info, PSP_A_ASSOC_TX_KEY, &tx_key, key_sz);
+		goto err_free_pas;
+	err = psp_nl_parse_key(info, PSP_A_ASSOC_TX_KEY, &pas->tx, key_sz);
 	if (err < 0)
-		return err;
+		goto err_free_pas;
 
 	rsp = psp_nl_reply_new(info);
 	if (!rsp)
-		return -ENOMEM;
+		goto err_free_pas;
 
-	tas = kzalloc(struct_size(tas, drv_data, psd->caps->tx_assoc_drv_spc),
-		      GFP_KERNEL_ACCOUNT);
-	if (!tas) {
-		err = -ENOMEM;
-		goto err_free_msg;
-	}
-
-	refcount_set(&tas->refcnt, 1);
-
-	err = psd->ops->tx_assoc_add(psd, tas, info->extack);
+	err = psd->ops->assoc_add(psd, pas, info->extack);
 	if (err)
-		goto err_free_tas;
+		goto err_free_msg;
 
 	if (info->attrs[PSP_A_ASSOC_SOCK_FD]) {
 		int fd = nla_get_u32(info->attrs[PSP_A_ASSOC_SOCK_FD]);
 
-		err = psp_sock_tx_assoc_set(fd, tas);
+		err = psp_sock_assoc_set(fd, pas);
 		if (err)
 			goto err_dev_del;
 	}
@@ -465,10 +463,10 @@ int psp_nl_assoc_add_doit(struct sk_buff *skb, struct genl_info *info)
 	return psp_nl_reply_send(rsp, info);
 
 err_dev_del:
-	psd->ops->tx_assoc_del(psd, tas);
-err_free_tas:
-	kfree(tas);
+	psd->ops->assoc_del(psd, pas);
 err_free_msg:
 	nlmsg_free(rsp);
+err_free_pas:
+	kfree(pas);
 	return err;
 }

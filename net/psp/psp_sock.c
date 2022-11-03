@@ -5,7 +5,7 @@
 #include <net/psp.h>
 #include "psp.h"
 
-int psp_sock_tx_assoc_set(int fd, struct psp_tx_assoc *tas)
+int psp_sock_assoc_set(int fd, struct psp_assoc *pas)
 {
 	struct psp_sock_state *pss; //, *old;
 	struct socket *sock;
@@ -32,7 +32,7 @@ int psp_sock_tx_assoc_set(int fd, struct psp_tx_assoc *tas)
 		goto err_put;
 	}
 
-	pss->tx = tas;
+	pss->tx = pas;
 
 //	old = rcu /* TODO: rcu lifetime for the pss */
 //	rcu_assign_pointer(sk->psp_state, pss);

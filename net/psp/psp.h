@@ -32,6 +32,6 @@ void psp_nl_notify_dev(struct psp_dev *psd, u32 cmd);
 int psp_netlink_notify(struct notifier_block *nb, unsigned long state,
 		       void *_notify);
 
-int psp_sock_tx_assoc_set(int fd, struct psp_tx_assoc *tas);
+int psp_sock_assoc_set(int fd, struct psp_assoc *pas);
 
 #endif /* __PSP_PSP_H */
