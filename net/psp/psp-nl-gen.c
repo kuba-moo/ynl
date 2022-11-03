@@ -10,6 +10,12 @@
 
 #include <linux/psp.h>
 
+/* Common nested types */
+const struct nla_policy psp_keys_nl_policy[PSP_A_KEYS_SPI + 1] = {
+	[PSP_A_KEYS_KEY] = { .type = NLA_BINARY, },
+	[PSP_A_KEYS_SPI] = { .type = NLA_U32, },
+};
+
 // PSP_CMD_DEV_GET - do
 static const struct nla_policy psp_dev_get_nl_policy[PSP_A_DEV_ID + 1] = {
 	[PSP_A_DEV_ID] = NLA_POLICY_MIN(NLA_U32, 1),
@@ -30,8 +36,8 @@ static const struct nla_policy psp_rx_assoc_alloc_nl_policy[PSP_A_ASSOC_VERSION 
 // PSP_CMD_ASSOC_ADD - do
 static const struct nla_policy psp_assoc_add_nl_policy[PSP_A_ASSOC_SOCK_FD + 1] = {
 	[PSP_A_ASSOC_VERSION] = NLA_POLICY_MAX(NLA_U32, 3),
-	[PSP_A_ASSOC_TX_KEY] = { .type = NLA_NESTED, },
-	[PSP_A_ASSOC_RX_KEY] = { .type = NLA_NESTED, },
+	[PSP_A_ASSOC_TX_KEY] = NLA_POLICY_NESTED(psp_keys_nl_policy),
+	[PSP_A_ASSOC_RX_KEY] = NLA_POLICY_NESTED(psp_keys_nl_policy),
 	[PSP_A_ASSOC_SOCK_FD] = { .type = NLA_U32, },
 };
 
