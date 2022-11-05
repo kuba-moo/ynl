@@ -133,4 +133,10 @@ void psp_dev_unregister(struct psp_dev *psd);
 /* Kernel-facing API */
 void psp_assoc_put(struct psp_assoc *pas);
 
+#ifdef CONFIG_PSP
+void psp_sk_assoc_free(struct sock *sk);
+#else
+static inline void psp_sk_assoc_free(struct sock *sk) { }
+#endif
+
 #endif /* __NET_PSP_H */

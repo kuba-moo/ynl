@@ -45,8 +45,15 @@ static void psp_assoc_free_queue(struct rcu_head *head)
  */
 void psp_assoc_put(struct psp_assoc *pas)
 {
-	if (refcount_dec_and_test(&pas->refcnt))
+	if (pas && refcount_dec_and_test(&pas->refcnt))
 		call_rcu(&pas->rcu, psp_assoc_free_queue);
+}
+
+void psp_sk_assoc_free(struct sock *sk)
+{
+	rcu_read_lock();
+	psp_assoc_put(rcu_dereference(sk->psp_assoc));
+	rcu_read_unlock();
 }
 
 /**

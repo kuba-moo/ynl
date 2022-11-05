@@ -1,2 +1,2 @@
 TODO:
- - take care of removing assoc on socket close
+ - do the output checks
