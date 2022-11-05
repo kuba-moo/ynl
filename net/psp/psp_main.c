@@ -20,6 +20,35 @@ struct mutex psp_devs_lock;
  * Each instance has a refcount and will be freed async.
  */
 
+static void psp_assoc_free(struct work_struct *work)
+{
+	struct psp_assoc *pas = container_of(work, struct psp_assoc, work);
+	struct psp_dev *psd = pas->psd;
+
+	mutex_lock(&psd->lock);
+	psd->ops->assoc_del(psd, pas);
+	mutex_unlock(&psd->lock);
+	kfree(pas);
+}
+
+static void psp_assoc_free_queue(struct rcu_head *head)
+{
+	struct psp_assoc *pas = container_of(head, struct psp_assoc, rcu);
+
+	INIT_WORK(&pas->work, psp_assoc_free);
+	schedule_work(&pas->work);
+}
+
+/**
+ * psp_assoc_put() - release a reference on a PSP association
+ * @pas: association to release
+ */
+void psp_assoc_put(struct psp_assoc *pas)
+{
+	if (refcount_dec_and_test(&pas->refcnt))
+		call_rcu(&pas->rcu, psp_assoc_free_queue);
+}
+
 /**
  * psp_dev_check_access() - check if user in a given net ns can access PSP dev
  * @psd:	PSP device structure user is trying to access

@@ -78,6 +78,8 @@ struct psp_assoc {
 	u8 version;
 
 	refcount_t refcnt;
+	struct rcu_head rcu;
+	struct work_struct work;
 
 	u8 drv_data[] __aligned(8);
 };
@@ -122,9 +124,13 @@ struct psp_dev_ops {
 	void (*assoc_del)(struct psp_dev *psd, struct psp_assoc *pas);
 };
 
+/* Driver-facing API */
 struct psp_dev *
 psp_dev_create(struct net_device *netdev, struct psp_dev_ops *psd_ops,
 	       struct psp_dev_caps *psd_caps, void *priv_ptr);
 void psp_dev_unregister(struct psp_dev *psd);
+
+/* Kernel-facing API */
+void psp_assoc_put(struct psp_assoc *pas);
 
 #endif /* __NET_PSP_H */

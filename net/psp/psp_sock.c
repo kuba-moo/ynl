@@ -2,45 +2,34 @@
 
 #include <linux/file.h>
 #include <linux/net.h>
+#include <linux/rcupdate.h>
+
 #include <net/psp.h>
 #include "psp.h"
 
-int psp_sock_assoc_set(int fd, struct psp_assoc *pas)
+int psp_sock_assoc_set(unsigned int fd, struct psp_assoc *pas)
 {
-	struct psp_sock_state *pss; //, *old;
+	struct psp_assoc *old;
 	struct socket *sock;
-	struct file *file;
-//	struct sock *sk;
+	struct sock *sk;
 	int err;
 
-	if (fd < 0)
-		return -EBADF;
+	sock = sockfd_lookup(fd, &err);
+	if (!sock)
+		return err;
 
-	file = fget(fd);
-	if (!file)
-		return -EBADF;
+	sk = sock->sk;
+	lock_sock(sk);
 
-	sock = sock_from_file(file);
-	if (!sock) {
-		err = -ENOTSOCK;
-		goto err_put;
-	}
+	old = psp_sk_assoc(sk);
 
-	pss = kzalloc(sizeof(*pss), GFP_KERNEL_ACCOUNT);
-	if (!pss) {
-		err = -ENOMEM;
-		goto err_put;
-	}
+	refcount_inc(&pas->refcnt);
+	rcu_assign_pointer(sk->psp_assoc, pas);
 
-	pss->tx = pas;
+	release_sock(sk);
+	sockfd_put(sock);
 
-//	old = rcu /* TODO: rcu lifetime for the pss */
-//	rcu_assign_pointer(sk->psp_state, pss);
-
-	fput(file);
+	psp_assoc_put(old);
 
 	return 0;
-err_put:
-	fput(file);
-	return err;
 }

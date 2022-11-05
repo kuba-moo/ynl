@@ -460,6 +460,9 @@ int psp_nl_assoc_add_doit(struct sk_buff *skb, struct genl_info *info)
 			goto err_dev_del;
 	}
 
+	/* TODO: allow ref'ing the association onto the socket */
+	psp_assoc_put(pas);
+
 	return psp_nl_reply_send(rsp, info);
 
 err_dev_del:
