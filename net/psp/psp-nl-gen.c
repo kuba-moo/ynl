@@ -29,26 +29,35 @@ static const struct nla_policy psp_tx_assoc_add_nl_policy[PSP_A_KEYS_SOCK_FD + 1
 	[PSP_A_KEYS_SOCK_FD] = { .type = NLA_U32, },
 };
 
+// Dummy reject-all policy
+static const struct nla_policy psp_dummy_nl_policy[2] = {
+};
+
 // Ops table for psp
 static const struct genl_split_ops psp_nl_ops[4] = {
 	{
 		.cmd		= PSP_CMD_DEV_GET,
 		.doit		= psp_nl_dev_get_doit,
-		.dumpit		= psp_nl_dev_get_dumpit,
 		.policy		= psp_dev_get_nl_policy,
-		.maxattr	= PSP_A_DEV_ID + 1,
+		.maxattr	= PSP_A_DEV_ID,
+	},
+	{
+		.cmd		= PSP_CMD_DEV_GET,
+		.dumpit		= psp_nl_dev_get_dumpit,
+		.policy		= psp_dummy_nl_policy,
+		.maxattr	= 1,
 	},
 	{
 		.cmd		= PSP_CMD_DEV_SET,
 		.doit		= psp_nl_dev_set_doit,
 		.policy		= psp_dev_set_nl_policy,
-		.maxattr	= PSP_A_DEV_PSP_VERSIONS_ENA + 1,
+		.maxattr	= PSP_A_DEV_PSP_VERSIONS_ENA,
 	},
 	{
 		.cmd		= PSP_CMD_TX_ASSOC_ADD,
 		.doit		= psp_nl_tx_assoc_add_doit,
 		.policy		= psp_tx_assoc_add_nl_policy,
-		.maxattr	= PSP_A_KEYS_SOCK_FD + 1,
+		.maxattr	= PSP_A_KEYS_SOCK_FD,
 	},
 };
 
@@ -62,8 +71,8 @@ struct genl_family psp_nl_family __ro_after_init = {
 	.netnsok	= true,
 	.parallel_ops	= true,
 	.module		= THIS_MODULE,
-	.ops		= psp_nl_ops,
-	.n_ops		= ARRAY_SIZE(psp_nl_ops),
+	.small_ops	= psp_nl_ops,
+	.n_small_ops	= ARRAY_SIZE(psp_nl_ops),
 	.mcgrps		= psp_nl_mcgrps,
 	.n_mcgrps	= ARRAY_SIZE(psp_nl_mcgrps),
 };
