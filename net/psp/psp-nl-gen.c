@@ -37,7 +37,9 @@ static const struct nla_policy psp_dummy_nl_policy[2] = {
 static const struct genl_split_ops psp_nl_ops[4] = {
 	{
 		.cmd		= PSP_CMD_DEV_GET,
+		.pre_doit	= psp_device_get_and_lock,
 		.doit		= psp_nl_dev_get_doit,
+		.post_doit	= psp_device_unlock,
 		.policy		= psp_dev_get_nl_policy,
 		.maxattr	= PSP_A_DEV_ID,
 	},
@@ -49,7 +51,9 @@ static const struct genl_split_ops psp_nl_ops[4] = {
 	},
 	{
 		.cmd		= PSP_CMD_DEV_SET,
+		.pre_doit	= psp_device_get_and_lock,
 		.doit		= psp_nl_dev_set_doit,
+		.post_doit	= psp_device_unlock,
 		.policy		= psp_dev_set_nl_policy,
 		.maxattr	= PSP_A_DEV_PSP_VERSIONS_ENA,
 	},

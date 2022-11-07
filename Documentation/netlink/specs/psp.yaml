@@ -84,6 +84,8 @@ operations:
             - ifindex
             - psp-versions-cap
             - psp-versions-ena
+        pre: psp-device-get-and-lock
+        post: psp-device-unlock
       dump:
         reply: *dev-all
     -
@@ -105,6 +107,8 @@ operations:
           attributes:
             - id
             - psp-versions-ena
+        pre: psp-device-get-and-lock
+        post: psp-device-unlock
     -
       name: dev_change_ntf
       doc: Notification about device configuration being changed.
