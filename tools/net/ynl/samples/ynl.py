@@ -144,6 +144,8 @@ class NlMsg:
                     self.extack['miss-type'] = extack.as_u32()
                 elif extack.type == Netlink.NLMSGERR_ATTR_MISS_NEST:
                     self.extack['miss-nest'] = extack.as_u32()
+                elif extack.type == Netlink.NLMSGERR_ATTR_OFFS:
+                    self.extack['bad-attr-offs'] = extack.as_u32()
                 else:
                     if 'unknown' not in self.extack:
                         self.extack['unknown'] = []
@@ -397,6 +399,8 @@ class YnlFamily:
             attr_payload = struct.pack("I", int(value))
         elif attr["type"] == 'string':
             attr_payload = str(value).encode('ascii') + b'\x00'
+        elif attr["type"] == 'binary':
+            attr_payload = value
         else:
             raise Exception(f'Unknown type at {space} {name} {value} {attr["type"]}')
 
