@@ -1661,8 +1661,20 @@ def print_kernel_op_table_fwd(family, cw, terminate):
     if not terminate or exported:
         cw.p(f"// Ops table for {family.name}")
 
-        struct_type = 'genl_small_ops' if family.kernel_policy == 'global' else 'genl_ops'
-        cnt = len(family.ops)
+        pol_to_struct = {'global': 'genl_small_ops',
+                         'per-op': 'genl_ops',
+                         'split': 'genl_split_ops'}
+        struct_type = pol_to_struct[family.kernel_policy]
+
+        if family.kernel_policy == 'split':
+            cnt = 0
+            for op in family.ops.values():
+                if 'do' in op:
+                    cnt += 1
+                if 'dump' in op:
+                    cnt += 1
+        else:
+            cnt = len(family.ops)
 
         qual = 'static const' if not exported else 'const'
         line = f"{qual} struct {struct_type} {family.name}_nl_ops[{cnt}]"
