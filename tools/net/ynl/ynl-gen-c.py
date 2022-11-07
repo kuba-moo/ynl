@@ -1707,31 +1707,81 @@ def print_kernel_op_table_hdr(family, cw):
     print_kernel_op_table_fwd(family, cw, terminate=True)
 
 
-def print_kernel_op_table(family, cw):
-    print_kernel_op_table_fwd(family, cw, terminate=False)
-    for op_name, op in family.ops.items():
-        if op.is_async:
-            continue
+def print_kernel_dummy_policy(family, cw):
+    if family.kernel_policy == 'split':
+        for op_name, op in family.ops.items():
+            for op_mode in ['do', 'dump']:
+                if op.is_async or op_mode not in op:
+                    continue
 
-        cw.block_start()
-        members = [('cmd', op.enum_name)]
-        if 'dont-validate' in op:
-            members.append(('validate', ' | '.join([c_upper('genl-dont-validate-' + x) for x in op['dont-validate']])), )
-        for op_mode in ['do', 'dump']:
-            if op_mode in op:
+            if 'request' not in op[op_mode]:
+                cw.p('// Dummy reject-all policy')
+                name = c_lower(f"{family.name}-dummy-nl-policy")
+                cw.block_start(line=f'static const struct nla_policy {name}[2] =')
+                cw.block_end(line=';')
+                cw.nl()
+                return
+
+
+def print_kernel_op_table(family, cw):
+    print_kernel_dummy_policy(family, cw)
+
+    print_kernel_op_table_fwd(family, cw, terminate=False)
+    if family.kernel_policy == 'global' or family.kernel_policy == 'per-op':
+        for op_name, op in family.ops.items():
+            if op.is_async:
+                continue
+
+            cw.block_start()
+            members = [('cmd', op.enum_name)]
+            if 'dont-validate' in op:
+                members.append(('validate',
+                                ' | '.join([c_upper('genl-dont-validate-' + x)
+                                            for x in op['dont-validate']])), )
+            for op_mode in ['do', 'dump']:
+                if op_mode in op:
+                    name = c_lower(f"{family.name}-nl-{op_name}-{op_mode}it")
+                    members.append((op_mode + 'it', name))
+            if family.kernel_policy == 'per-op':
+                struct = Struct(family, op['attribute-set'],
+                                type_list=op['do']['request']['attributes'])
+
+                name = c_lower(f"{family.name}-{op_name}-nl-policy")
+                members.append(('policy', name))
+                members.append(('maxattr', struct.attr_max_val.enum_name))
+            if 'flags' in op:
+                members.append(('flags', ' | '.join([c_upper('genl-' + x) for x in op['flags']])))
+            cw.write_struct_init(members)
+            cw.block_end(line=',')
+    elif family.kernel_policy == 'split':
+        for op_name, op in family.ops.items():
+            for op_mode in ['do', 'dump']:
+                if op.is_async or op_mode not in op:
+                    continue
+
+                cw.block_start()
+                members = [('cmd', op.enum_name)]
+                if 'dont-validate' in op:
+                    members.append(('validate',
+                                    ' | '.join([c_upper('genl-dont-validate-' + x)
+                                                for x in op['dont-validate']])), )
                 name = c_lower(f"{family.name}-nl-{op_name}-{op_mode}it")
                 members.append((op_mode + 'it', name))
-        if family.kernel_policy in {'per-op', 'split'}:
-            struct = Struct(family, op['attribute-set'],
-                            type_list=op['do']['request']['attributes'])
+                if 'request' in op[op_mode]:
+                    struct = Struct(family, op['attribute-set'],
+                                    type_list=op[op_mode]['request']['attributes'])
 
-            name = c_lower(f"{family.name}-{op_name}-nl-policy")
-            members.append(('policy', name))
-            members.append(('maxattr', struct.attr_max_val.enum_name + ' + 1'))
-        if 'flags' in op:
-            members.append(('flags', ' | '.join([c_upper('genl-' + x) for x in op['flags']])))
-        cw.write_struct_init(members)
-        cw.block_end(line=',')
+                    name = c_lower(f"{family.name}-{op_name}-nl-policy")
+                    members.append(('policy', name))
+                    members.append(('maxattr', struct.attr_max_val.enum_name))
+                else:
+                    members.append(('policy', c_lower(f"{family.name}-dummy-nl-policy")))
+                    members.append(('maxattr', '1'))
+                if 'flags' in op:
+                    members.append(('flags', ' | '.join([c_upper('genl-' + x) for x in op['flags']])))
+                cw.write_struct_init(members)
+                cw.block_end(line=',')
+
     cw.block_end(line=';')
     cw.nl()
 
@@ -1779,8 +1829,12 @@ def print_kernel_family_struct_src(family, cw):
     cw.p('.netnsok\t= true,')
     cw.p('.parallel_ops\t= true,')
     cw.p('.module\t\t= THIS_MODULE,')
-    cw.p(f'.ops\t\t= {family.name}_nl_ops,')
-    cw.p(f'.n_ops\t\t= ARRAY_SIZE({family.name}_nl_ops),')
+    if family.kernel_policy == 'per-op':
+        cw.p(f'.ops\t\t= {family.name}_nl_ops,')
+        cw.p(f'.n_ops\t\t= ARRAY_SIZE({family.name}_nl_ops),')
+    elif family.kernel_policy == 'split':
+        cw.p(f'.small_ops\t= {family.name}_nl_ops,')
+        cw.p(f'.n_small_ops\t= ARRAY_SIZE({family.name}_nl_ops),')
     if family.mcgrps['list']:
         cw.p(f'.mcgrps\t\t= {family.name}_nl_mcgrps,')
         cw.p(f'.n_mcgrps\t= ARRAY_SIZE({family.name}_nl_mcgrps),')
