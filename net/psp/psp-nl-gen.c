@@ -30,7 +30,7 @@ static const struct nla_policy psp_tx_assoc_add_nl_policy[PSP_A_KEYS_SOCK_FD + 1
 };
 
 // Ops table for psp
-static const struct genl_ops psp_nl_ops[3] = {
+static const struct genl_split_ops psp_nl_ops[4] = {
 	{
 		.cmd		= PSP_CMD_DEV_GET,
 		.doit		= psp_nl_dev_get_doit,
