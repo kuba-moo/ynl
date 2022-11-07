@@ -35,6 +35,7 @@ static const struct nla_policy psp_rx_assoc_alloc_nl_policy[PSP_A_ASSOC_VERSION 
 
 // PSP_CMD_ASSOC_ADD - do
 static const struct nla_policy psp_assoc_add_nl_policy[PSP_A_ASSOC_SOCK_FD + 1] = {
+	[PSP_A_ASSOC_DEV_ID] = NLA_POLICY_MIN(NLA_U32, 1),
 	[PSP_A_ASSOC_VERSION] = NLA_POLICY_MAX(NLA_U32, 3),
 	[PSP_A_ASSOC_TX_KEY] = NLA_POLICY_NESTED(psp_keys_nl_policy),
 	[PSP_A_ASSOC_RX_KEY] = NLA_POLICY_NESTED(psp_keys_nl_policy),
