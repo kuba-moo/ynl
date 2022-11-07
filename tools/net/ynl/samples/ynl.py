@@ -158,7 +158,7 @@ class NlMsg:
                         self.extack['miss-type'] = desc
 
     def __repr__(self):
-        msg = f"nl_len = {self.nl_len} nl_flags = 0x{self.nl_flags:x} nl_type = {self.nl_type}\n"
+        msg = f"nl_len = {self.nl_len} ({len(self.raw)}) nl_flags = 0x{self.nl_flags:x} nl_type = {self.nl_type}\n"
         if self.error:
             msg += '\terror: ' + str(self.error)
         if self.extack:
