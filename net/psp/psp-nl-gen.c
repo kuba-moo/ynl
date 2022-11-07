@@ -24,12 +24,12 @@ static const struct nla_policy psp_dev_set_nl_policy[PSP_A_DEV_PSP_VERSIONS_ENA 
 // PSP_CMD_RX_ASSOC_ALLOC - do
 static const struct nla_policy psp_rx_assoc_alloc_nl_policy[PSP_A_ASSOC_VERSION + 1] = {
 	[PSP_A_ASSOC_DEV_ID] = NLA_POLICY_MIN(NLA_U32, 1),
-	[PSP_A_ASSOC_VERSION] = NLA_POLICY_MAX(NLA_U32, 4),
+	[PSP_A_ASSOC_VERSION] = NLA_POLICY_MAX(NLA_U32, 3),
 };
 
 // PSP_CMD_ASSOC_ADD - do
 static const struct nla_policy psp_assoc_add_nl_policy[PSP_A_ASSOC_SOCK_FD + 1] = {
-	[PSP_A_ASSOC_VERSION] = NLA_POLICY_MAX(NLA_U32, 4),
+	[PSP_A_ASSOC_VERSION] = NLA_POLICY_MAX(NLA_U32, 3),
 	[PSP_A_ASSOC_TX_KEY] = { .type = NLA_NESTED, },
 	[PSP_A_ASSOC_RX_KEY] = { .type = NLA_NESTED, },
 	[PSP_A_ASSOC_SOCK_FD] = { .type = NLA_U32, },
