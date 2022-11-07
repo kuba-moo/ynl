@@ -725,6 +725,14 @@ class Family:
         self.attr_sets = dict()
         self.attr_sets_list = []
 
+        self.hooks = dict()
+        for when in ['pre', 'post']:
+            self.hooks[when] = dict()
+            for op_mode in ['do', 'dump']:
+                self.hooks[when][op_mode] = dict()
+                self.hooks[when][op_mode]['set'] = set()
+                self.hooks[when][op_mode]['list'] = []
+
         # dict space-name -> 'request': set(attrs), 'reply': set(attrs)
         self.root_sets = dict()
         # dict space-name -> set('request', 'reply')
@@ -737,6 +745,7 @@ class Family:
         self._load_root_sets()
         self._load_nested_sets()
         self._load_all_notify()
+        self._load_hooks()
 
         self.kernel_policy = self.yaml.get('kernel-policy', 'split')
         if self.kernel_policy == 'global':
@@ -857,6 +866,20 @@ class Family:
         for attr in self.attr_sets[attr_set_name]:
             if attr in global_set:
                 self.global_policy.append(attr)
+
+    def _load_hooks(self):
+        for op in self.ops.values():
+            for op_mode in ['do', 'dump']:
+                if op_mode not in op:
+                    continue
+                for when in ['pre', 'post']:
+                    if when not in op[op_mode]:
+                        continue
+                    name = op[op_mode][when]
+                    if name in self.hooks[when][op_mode]['set']:
+                        continue
+                    self.hooks[when][op_mode]['set'].add(name)
+                    self.hooks[when][op_mode]['list'].append(name)
 
 
 class RenderInfo:
@@ -1687,6 +1710,23 @@ def print_kernel_op_table_fwd(family, cw, terminate):
         return
 
     cw.nl()
+    for name in family.hooks['pre']['do']['list']:
+        cw.write_func_prot('int', c_lower(name),
+                           ['const struct genl_split_ops *ops',
+                            'struct sk_buff *skb', 'struct genl_info *info'], suffix=';')
+    for name in family.hooks['post']['do']['list']:
+        cw.write_func_prot('void', c_lower(name),
+                           ['const struct genl_split_ops *ops',
+                            'struct sk_buff *skb', 'struct genl_info *info'], suffix=';')
+    for name in family.hooks['pre']['dump']['list']:
+        cw.write_func_prot('int', c_lower(name),
+                           ['struct netlink_callback *cb'], suffix=';')
+    for name in family.hooks['post']['dump']['list']:
+        cw.write_func_prot('int', c_lower(name),
+                           ['struct netlink_callback *cb'], suffix=';')
+
+    cw.nl()
+
     for op_name, op in family.ops.items():
         if op.is_async:
             continue
@@ -1754,6 +1794,9 @@ def print_kernel_op_table(family, cw):
             cw.write_struct_init(members)
             cw.block_end(line=',')
     elif family.kernel_policy == 'split':
+        cb_names = {'do':   {'pre': 'pre_doit', 'post': 'post_doit'},
+                    'dump': {'pre': 'start', 'post': 'done'}}
+
         for op_name, op in family.ops.items():
             for op_mode in ['do', 'dump']:
                 if op.is_async or op_mode not in op:
@@ -1766,7 +1809,11 @@ def print_kernel_op_table(family, cw):
                                     ' | '.join([c_upper('genl-dont-validate-' + x)
                                                 for x in op['dont-validate']])), )
                 name = c_lower(f"{family.name}-nl-{op_name}-{op_mode}it")
+                if 'pre' in op[op_mode]:
+                    members.append((cb_names[op_mode]['pre'], c_lower(op[op_mode]['pre'])))
                 members.append((op_mode + 'it', name))
+                if 'post' in op[op_mode]:
+                    members.append((cb_names[op_mode]['post'], c_lower(op[op_mode]['post'])))
                 if 'request' in op[op_mode]:
                     struct = Struct(family, op['attribute-set'],
                                     type_list=op[op_mode]['request']['attributes'])
@@ -2062,11 +2109,12 @@ def main():
                 print_req_policy_fwd(cw, struct)
                 cw.nl()
 
-            for op_name, op in parsed.ops.items():
-                if parsed.kernel_policy in {'per-op', 'split'} and 'do' in op and 'event' not in op:
-                    ri = RenderInfo(cw, parsed, args.mode, op, op_name, "do")
-                    print_req_policy_fwd(cw, ri.struct['request'], op=op)
-                    cw.nl()
+            if parsed.kernel_policy in {'per-op', 'split'}:
+                for op_name, op in parsed.ops.items():
+                    if 'do' in op and 'event' not in op:
+                        ri = RenderInfo(cw, parsed, args.mode, op, op_name, "do")
+                        print_req_policy_fwd(cw, ri.struct['request'], op=op)
+                        cw.nl()
 
             print_kernel_op_table_hdr(parsed, cw)
             print_kernel_mcgrp_hdr(parsed, cw)

@@ -254,6 +254,12 @@ properties:
                       items:
                         type: string
                 reply: *subop-attr-list
+                pre:
+                  description: Hook for a function to run before the main callback (pre_doit or start).
+                  type: string
+                post:
+                  description: Hook for a function to run after the main callback (post_doit or done).
+                  type: string
             dump: *subop-type
             notify:
               description: Name of the command sharing the reply type with this notification.
