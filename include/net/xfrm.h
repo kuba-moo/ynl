@@ -1134,6 +1134,10 @@ static inline int __xfrm_policy_check2(struct sock *sk, int dir,
 
 static inline int xfrm_policy_check(struct sock *sk, int dir, struct sk_buff *skb, unsigned short family)
 {
+#ifdef CONFIG_PSP
+	if (sk && READ_ONCE(sk->psp_assoc) && !skb->decrypted)
+		return 0;
+#endif
 	return __xfrm_policy_check2(sk, dir, skb, family, 0);
 }
 

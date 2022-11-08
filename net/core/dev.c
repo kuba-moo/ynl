@@ -105,6 +105,7 @@
 #include <net/gro.h>
 #include <net/pkt_sched.h>
 #include <net/pkt_cls.h>
+#include <net/psp.h>
 #include <net/checksum.h>
 #include <net/xfrm.h>
 #include <linux/highmem.h>
@@ -3663,6 +3664,10 @@ static struct sk_buff *validate_xmit_skb(struct sk_buff *skb, struct net_device 
 	skb = sk_validate_xmit_skb(skb, dev);
 	if (unlikely(!skb))
 		goto out_null;
+
+	if (skb->sk && skb->sk->psp_assoc &&
+	    skb->sk->psp_assoc->psd->main_netdev != dev)
+		goto out_kfree_skb;
 
 	if (netif_needs_gso(skb, features)) {
 		struct sk_buff *segs;
