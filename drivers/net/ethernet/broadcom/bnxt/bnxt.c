@@ -811,33 +811,27 @@ static inline int bnxt_alloc_rx_page(struct bnxt *bp,
 	u16 sw_prod = rxr->rx_sw_agg_prod;
 	unsigned int offset = 0;
 
-	if (BNXT_RX_PAGE_MODE(bp)) {
+	if (PAGE_SIZE <= BNXT_RX_PAGE_SIZE || BNXT_RX_PAGE_MODE(bp)) {
 		page = __bnxt_alloc_rx_page(bp, &mapping, rxr, gfp);
 
 		if (!page)
 			return -ENOMEM;
 
 	} else {
-		if (PAGE_SIZE > BNXT_RX_PAGE_SIZE) {
-			page = rxr->rx_page;
-			if (!page) {
-				page = alloc_page(gfp);
-				if (!page)
-					return -ENOMEM;
-				rxr->rx_page = page;
-				rxr->rx_page_offset = 0;
-			}
-			offset = rxr->rx_page_offset;
-			rxr->rx_page_offset += BNXT_RX_PAGE_SIZE;
-			if (rxr->rx_page_offset == PAGE_SIZE)
-				rxr->rx_page = NULL;
-			else
-				get_page(page);
-		} else {
+		page = rxr->rx_page;
+		if (!page) {
 			page = alloc_page(gfp);
 			if (!page)
 				return -ENOMEM;
+			rxr->rx_page = page;
+			rxr->rx_page_offset = 0;
 		}
+		offset = rxr->rx_page_offset;
+		rxr->rx_page_offset += BNXT_RX_PAGE_SIZE;
+		if (rxr->rx_page_offset == PAGE_SIZE)
+			rxr->rx_page = NULL;
+		else
+			get_page(page);
 
 		mapping = dma_map_page_attrs(&pdev->dev, page, offset,
 					     BNXT_RX_PAGE_SIZE, DMA_FROM_DEVICE,
@@ -1046,6 +1040,8 @@ static struct sk_buff *bnxt_rx_skb(struct bnxt *bp,
 
 	skb_reserve(skb, bp->rx_offset);
 	skb_put(skb, offset_and_len & 0xffff);
+	skb_mark_for_recycle(skb);
+
 	return skb;
 }
 
@@ -1110,9 +1106,13 @@ static u32 __bnxt_rx_agg_pages(struct bnxt *bp,
 			return 0;
 		}
 
-		dma_unmap_page_attrs(&pdev->dev, mapping, BNXT_RX_PAGE_SIZE,
-				     bp->rx_dir,
-				     DMA_ATTR_WEAK_ORDERING);
+		if (PAGE_SIZE > BNXT_RX_PAGE_SIZE)
+			dma_unmap_page_attrs(&pdev->dev, mapping,
+					     BNXT_RX_PAGE_SIZE, bp->rx_dir,
+					     DMA_ATTR_WEAK_ORDERING);
+		else
+			dma_sync_single_for_cpu(&pdev->dev, mapping,
+						PAGE_SIZE, DMA_BIDIRECTIONAL);
 
 		total_frag_len += frag_len;
 		prod = NEXT_RX_AGG(prod);
@@ -1754,6 +1754,7 @@ static void bnxt_deliver_skb(struct bnxt *bp, struct bnxt_napi *bnapi,
 		return;
 	}
 	skb_record_rx_queue(skb, bnapi->index);
+	skb_mark_for_recycle(skb);
 	napi_gro_receive(&bnapi->napi, skb);
 }
 
@@ -2960,7 +2961,7 @@ skip_rx_buf_free:
 		if (!page)
 			continue;
 
-		if (BNXT_RX_PAGE_MODE(bp)) {
+		if (PAGE_SIZE <= BNXT_RX_PAGE_SIZE || BNXT_RX_PAGE_MODE(bp)) {
 			rx_agg_buf->page = NULL;
 			__clear_bit(i, rxr->rx_agg_bmap);
 
