@@ -47,28 +47,45 @@ static int nsim_napi_rx(struct nsim_rq *rq, struct sk_buff *skb)
 }
 
 static int nsim_forward_skb(struct net_device *dev, struct sk_buff *skb,
-			    struct nsim_rq *rq)
+			    struct nsim_rq *rq, struct skb_ext *psp_ext)
 {
-	return __dev_forward_skb(dev, skb) ?: nsim_napi_rx(rq, skb);
+	int ret;
+
+	ret = __dev_forward_skb(dev, skb);
+	if (ret)
+		return ret;
+
+	if (psp_ext)
+		__skb_ext_set(skb, SKB_EXT_PSP, psp_ext);
+
+	return nsim_napi_rx(rq, skb);
 }
 
 static netdev_tx_t nsim_start_xmit(struct sk_buff *skb, struct net_device *dev)
 {
 	struct netdevsim *ns = netdev_priv(dev);
+	struct skb_ext *psp_ext = NULL;
 	struct net_device *peer_dev;
 	unsigned int len = skb->len;
 	struct netdevsim *peer_ns;
 	struct netdev_config *cfg;
 	struct nsim_rq *rq;
 	int rxq;
+	int dr;
 
 	rcu_read_lock();
 	if (!nsim_ipsec_tx(ns, skb))
-		goto out_drop_free;
+		goto out_drop_any;
 
 	peer_ns = rcu_dereference(ns->peer);
 	if (!peer_ns)
-		goto out_drop_free;
+		goto out_drop_any;
+
+	if (skb->decrypted) {
+		dr = nsim_do_psp(skb, ns, peer_ns, &psp_ext);
+		if (dr)
+			goto out_drop_free;
+	}
 
 	peer_dev = peer_ns->netdev;
 	rxq = skb_get_queue_mapping(skb);
@@ -84,7 +101,7 @@ static netdev_tx_t nsim_start_xmit(struct sk_buff *skb, struct net_device *dev)
 		skb_linearize(skb);
 
 	skb_tx_timestamp(skb);
-	if (unlikely(nsim_forward_skb(peer_dev, skb, rq) == NET_RX_DROP))
+	if (unlikely(nsim_forward_skb(peer_dev, skb, rq, psp_ext)))
 		goto out_drop_cnt;
 
 	napi_schedule(&rq->napi);
@@ -96,8 +113,10 @@ static netdev_tx_t nsim_start_xmit(struct sk_buff *skb, struct net_device *dev)
 	u64_stats_update_end(&ns->syncp);
 	return NETDEV_TX_OK;
 
+out_drop_any:
+	dr = SKB_DROP_REASON_NOT_SPECIFIED;
 out_drop_free:
-	dev_kfree_skb(skb);
+	kfree_skb_reason(skb, dr);
 out_drop_cnt:
 	rcu_read_unlock();
 	u64_stats_update_begin(&ns->syncp);
@@ -898,6 +917,7 @@ static void nsim_queue_uninit(struct netdevsim *ns)
 
 static int nsim_init_netdevsim(struct netdevsim *ns)
 {
+	struct netdevsim *peer;
 	struct mock_phc *phc;
 	int err;
 
@@ -930,8 +950,20 @@ static int nsim_init_netdevsim(struct netdevsim *ns)
 	if (err)
 		goto err_ipsec_teardown;
 	rtnl_unlock();
+
+	err = nsim_psp_init(ns);
+	if (err)
+		goto err_unregister_netdev;
+
 	return 0;
 
+err_unregister_netdev:
+	rtnl_lock();
+	peer = rtnl_dereference(ns->peer);
+	if (peer)
+		RCU_INIT_POINTER(peer->peer, NULL);
+	RCU_INIT_POINTER(ns->peer, NULL);
+	unregister_netdevice(ns->netdev);
 err_ipsec_teardown:
 	nsim_ipsec_teardown(ns);
 	nsim_macsec_teardown(ns);
@@ -1012,6 +1044,8 @@ void nsim_destroy(struct netdevsim *ns)
 
 	debugfs_remove(ns->qr_dfs);
 	debugfs_remove(ns->pp_dfs);
+
+	nsim_psp_uninit(ns);
 
 	rtnl_lock();
 	peer = rtnl_dereference(ns->peer);
