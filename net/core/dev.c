@@ -3659,10 +3659,11 @@ static struct sk_buff *validate_xmit_skb(struct sk_buff *skb, struct net_device 
 	if (unlikely(!skb))
 		goto out_null;
 
+/*
 	if (skb->sk && skb->sk->psp_assoc &&
 	    skb->sk->psp_assoc->psd->main_netdev != dev)
 		goto out_kfree_skb;
-
+*/
 	if (netif_needs_gso(skb, features)) {
 		struct sk_buff *segs;
 
