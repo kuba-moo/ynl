@@ -17,6 +17,7 @@ obj-$(CONFIG_NETFILTER)		+= netfilter/
 obj-$(CONFIG_INET)		+= ipv4/
 obj-$(CONFIG_TLS)		+= tls/
 obj-$(CONFIG_XFRM)		+= xfrm/
+obj-$(CONFIG_INET_PSP)		+= psp/
 obj-$(CONFIG_UNIX_SCM)		+= unix/
 obj-y				+= ipv6/
 obj-$(CONFIG_BPFILTER)		+= bpfilter/
