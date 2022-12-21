@@ -136,6 +136,7 @@ static int __net_init psp_pernet_init(struct net *net)
 {
 	struct psp_pernet *psp_net = psp_get_pernet(net);
 
+	mutex_init(&psp_net->sockets_lock);
 	xa_init(&psp_net->sockets);
 	return 0;
 }
@@ -145,6 +146,7 @@ static void __net_exit psp_pernet_exit(struct net *net)
 	struct psp_pernet *psp_net = psp_get_pernet(net);
 
 	WARN_ON_ONCE(!xa_empty(&psp_net->sockets));
+	mutex_destroy(&psp_net->sockets_lock);
 }
 
 int psp_pernet_id;
