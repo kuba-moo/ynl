@@ -19,8 +19,10 @@ int psp_sock_assoc_set(unsigned int fd, struct psp_assoc *pas)
 		return err;
 
 	sk = sock->sk;
-	if (sk->sk_family != AF_INET && sk->sk_family != AF_INET6)
+	if (sk->sk_family != AF_INET && sk->sk_family != AF_INET6) {
+		sockfd_put(sock);
 		return -EOPNOTSUPP;
+	}
 
 	lock_sock(sk);
 
