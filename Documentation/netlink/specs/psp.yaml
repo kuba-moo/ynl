@@ -160,8 +160,28 @@ operations:
           attributes: []
         pre: psp-assoc-device-get-locked
         post: psp-device-unlock
+    -
+      name: key-rotate
+      doc: Rotate the main key.
+      attribute-set: dev
+      do:
+        request:
+          attributes:
+            - id
+        reply:
+          attributes:
+            - id
+        pre: psp-device-get-locked
+        post: psp-device-unlock
+    -
+      name: key-rotate-ntf
+      doc: Notification about main key getting rotated.
+      notify: key-rotate
+      mcgrp: use
 
 mcast-groups:
   list:
     -
       name: mgmt
+    -
+      name: use

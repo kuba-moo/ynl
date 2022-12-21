@@ -225,6 +225,50 @@ int psp_nl_dev_set_doit(struct sk_buff *skb, struct genl_info *info)
 	return 0;
 }
 
+int psp_nl_key_rotate_doit(struct sk_buff *skb, struct genl_info *info)
+{
+	struct psp_dev *psd = info->user_ptr[0];
+	struct sk_buff *ntf, *rsp;
+	void *hdr;
+	int err;
+
+	rsp = psp_nl_reply_new(info);
+	if (!rsp)
+		return -ENOMEM;
+	ntf = genlmsg_new(GENLMSG_DEFAULT_SIZE, GFP_KERNEL);
+	if (!ntf) {
+		err = -ENOMEM;
+		goto err_free_rsp;
+	}
+
+	hdr = genlmsg_put(ntf, 0, 0, &psp_nl_family, 0, PSP_CMD_KEY_ROTATE);
+	if (!hdr) {
+		err = -EMSGSIZE;
+		goto err_free_ntf;
+	}
+
+	if (nla_put_u32(rsp, PSP_A_DEV_ID, psd->id) ||
+	    nla_put_u32(ntf, PSP_A_DEV_ID, psd->id)) {
+		err = -EMSGSIZE;
+		goto err_free_ntf;
+	}
+
+	err = psd->ops->key_rotate(psd, info->extack);
+	if (err)
+		goto err_free_ntf;
+
+	genlmsg_end(ntf, hdr);
+	genlmsg_multicast_netns(&psp_nl_family, dev_net(psd->main_netdev), ntf,
+				0, PSP_NLGRP_USE, GFP_KERNEL);
+	return psp_nl_reply_send(rsp, info);
+
+err_free_ntf:
+	nlmsg_free(ntf);
+err_free_rsp:
+	nlmsg_free(rsp);
+	return err;
+}
+
 /* Socket handling */
 
 static void psp_nl_sock_free(struct psp_nl_sock *psp_nl_sock)

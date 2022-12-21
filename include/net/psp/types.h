@@ -124,6 +124,11 @@ struct psp_dev_ops {
 	int (*assoc_add)(struct psp_dev *psd, struct psp_assoc *pas,
 			 struct netlink_ext_ack *extack);
 	void (*assoc_del)(struct psp_dev *psd, struct psp_assoc *pas);
+
+	/**
+	 * @key_rotate: rotate the main key
+	 */
+	int (*key_rotate)(struct psp_dev *psd, struct netlink_ext_ack *extack);
 };
 
 #endif /* __NET_PSP_H */
