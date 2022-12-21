@@ -105,6 +105,7 @@
 #include <net/gro.h>
 #include <net/pkt_sched.h>
 #include <net/pkt_cls.h>
+#include <net/psp.h>
 #include <net/checksum.h>
 #include <net/xfrm.h>
 #include <linux/highmem.h>
@@ -3626,6 +3627,25 @@ static struct sk_buff *validate_xmit_vlan(struct sk_buff *skb,
 	return skb;
 }
 
+static struct sk_buff *
+validate_xmit_psp(struct sk_buff *skb, struct net_device *dev)
+{
+#if IS_ENABLED(CONFIG_INET_PSP)
+	struct psp_assoc *pas;
+	bool good;
+
+	rcu_read_lock();
+	pas = psp_skb_get_assoc_rcu(skb);
+	good = !pas;
+	rcu_read_unlock();
+	if (!good) {
+		kfree_skb(skb);
+		return NULL;
+	}
+#endif
+	return skb;
+}
+
 int skb_csum_hwoffload_help(struct sk_buff *skb,
 			    const netdev_features_t features)
 {
@@ -3658,6 +3678,10 @@ static struct sk_buff *validate_xmit_skb(struct sk_buff *skb, struct net_device 
 		goto out_null;
 
 	skb = sk_validate_xmit_skb(skb, dev);
+	if (unlikely(!skb))
+		goto out_null;
+
+	skb = validate_xmit_psp(skb, dev);
 	if (unlikely(!skb))
 		goto out_null;
 

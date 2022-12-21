@@ -69,6 +69,7 @@
 #include <net/xfrm.h>
 #include <net/secure_seq.h>
 #include <net/busy_poll.h>
+#include <net/psp.h>
 
 #include <linux/inet.h>
 #include <linux/ipv6.h>
@@ -2114,6 +2115,10 @@ process:
 
 	drop_reason = tcp_inbound_md5_hash(sk, skb, &iph->saddr,
 					   &iph->daddr, AF_INET, dif, sdif);
+	if (drop_reason)
+		goto discard_and_relse;
+
+	drop_reason = psp_sk_rx_policy_check(sk, skb);
 	if (drop_reason)
 		goto discard_and_relse;
 
