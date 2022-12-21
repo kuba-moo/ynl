@@ -21,6 +21,7 @@
 #include <net/xfrm.h>
 #include <net/tcp.h>
 #include <net/sock_reuseport.h>
+#include <net/psp.h>
 #include <net/addrconf.h>
 
 #if IS_ENABLED(CONFIG_IPV6)
@@ -1198,6 +1199,7 @@ void inet_csk_destroy_sock(struct sock *sk)
 	sk_stream_kill_queues(sk);
 
 	xfrm_sk_free_policy(sk);
+	psp_sk_assoc_free(sk);
 
 	this_cpu_dec(*sk->sk_prot->orphan_count);
 

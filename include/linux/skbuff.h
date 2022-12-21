@@ -980,7 +980,7 @@ struct sk_buff {
 #ifdef CONFIG_NETFILTER_SKIP_EGRESS
 	__u8			nf_skip_egress:1;
 #endif
-#ifdef CONFIG_TLS_DEVICE
+#if defined(CONFIG_TLS_DEVICE) || defined(CONFIG_INET_PSP)
 	__u8			decrypted:1;
 #endif
 	__u8			slow_gro:1;
