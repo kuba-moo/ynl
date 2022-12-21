@@ -53,6 +53,7 @@ void psp_sk_assoc_free(struct sock *sk)
 {
 	rcu_read_lock();
 	psp_assoc_put(rcu_dereference(sk->psp_assoc));
+	rcu_assign_pointer(sk->psp_assoc, NULL);
 	rcu_read_unlock();
 }
 
