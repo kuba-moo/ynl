@@ -436,6 +436,9 @@ struct sock {
 #ifdef CONFIG_XFRM
 	struct xfrm_policy __rcu *sk_policy[2];
 #endif
+#ifdef CONFIG_PSP
+	struct psp_assoc __rcu	*psp_assoc;
+#endif
 
 	struct dst_entry __rcu	*sk_dst_cache;
 	atomic_t		sk_omem_alloc;
