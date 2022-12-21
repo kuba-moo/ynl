@@ -59,6 +59,7 @@
 #include <net/inet_common.h>
 #include <net/secure_seq.h>
 #include <net/busy_poll.h>
+#include <net/psp.h>
 
 #include <linux/proc_fs.h>
 #include <linux/seq_file.h>
@@ -1719,6 +1720,10 @@ process:
 
 	drop_reason = tcp_inbound_md5_hash(sk, skb, &hdr->saddr, &hdr->daddr,
 					   AF_INET6, dif, sdif);
+	if (drop_reason)
+		goto discard_and_relse;
+
+	drop_reason = psp_sk_rx_policy_check(sk, skb);
 	if (drop_reason)
 		goto discard_and_relse;
 

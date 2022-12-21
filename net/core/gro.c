@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
+#include <net/psp.h>
 #include <net/gro.h>
 #include <net/dst_metadata.h>
 #include <net/busy_poll.h>
@@ -381,6 +382,12 @@ static void gro_list_prepare_tc_ext(const struct sk_buff *skb,
 #endif
 }
 
+static void gro_list_prepare_psp_ext(const struct sk_buff *skb,
+				     const struct sk_buff *p,
+				     unsigned long *diffs)
+{
+}
+
 static void gro_list_prepare(const struct list_head *head,
 			     const struct sk_buff *skb)
 {
@@ -420,6 +427,7 @@ static void gro_list_prepare(const struct list_head *head,
 			diffs |= skb_get_nfct(p) ^ skb_get_nfct(skb);
 
 			gro_list_prepare_tc_ext(skb, p, &diffs);
+			gro_list_prepare_psp_ext(skb, p, &diffs);
 		}
 
 		NAPI_GRO_CB(p)->same_flow = !diffs;
