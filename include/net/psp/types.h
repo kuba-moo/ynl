@@ -86,6 +86,13 @@ struct psp_dev_caps {
 #define PSP_V1_KEY	32
 #define PSP_MAX_KEY	32
 
+struct psp_skb_ext {
+	__be32 spi;
+	/* generation and version are 8b but we don't want holes */
+	u16 generation;
+	u16 version;
+};
+
 /**
  * struct psp_dev_ops - netdev driver facing PSP callbacks
  */

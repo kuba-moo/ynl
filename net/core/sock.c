@@ -143,6 +143,7 @@
 #include <trace/events/sock.h>
 
 #include <net/tcp.h>
+#include <net/psp.h>
 #include <net/busy_poll.h>
 #include <net/phonet/phonet.h>
 
@@ -3868,6 +3869,7 @@ void sk_common_release(struct sock *sk)
 	sock_orphan(sk);
 
 	xfrm_sk_free_policy(sk);
+	psp_sk_assoc_free(sk);
 
 	sock_put(sk);
 }

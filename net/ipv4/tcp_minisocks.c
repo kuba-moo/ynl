@@ -23,6 +23,7 @@
 #include <net/xfrm.h>
 #include <net/busy_poll.h>
 #include <net/rstreason.h>
+#include <net/psp.h>
 
 static bool tcp_in_window(u32 seq, u32 end_seq, u32 s_win, u32 e_win)
 {
@@ -388,15 +389,16 @@ static void tcp_md5_twsk_free_rcu(struct rcu_head *head)
 
 void tcp_twsk_destructor(struct sock *sk)
 {
+	struct tcp_timewait_sock *twsk = tcp_twsk(sk);
+
 #ifdef CONFIG_TCP_MD5SIG
 	if (static_branch_unlikely(&tcp_md5_needed.key)) {
-		struct tcp_timewait_sock *twsk = tcp_twsk(sk);
-
 		if (twsk->tw_md5_key)
 			call_rcu(&twsk->tw_md5_key->rcu, tcp_md5_twsk_free_rcu);
 	}
 #endif
 	tcp_ao_destroy_sock(sk, true);
+	psp_twsk_assoc_free(twsk);
 }
 EXPORT_SYMBOL_GPL(tcp_twsk_destructor);
 

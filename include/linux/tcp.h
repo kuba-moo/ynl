@@ -550,6 +550,9 @@ struct tcp_timewait_sock {
 #ifdef CONFIG_TCP_AO
 	struct tcp_ao_info	__rcu *ao_info;
 #endif
+#if IS_ENABLED(CONFIG_INET_PSP)
+	struct psp_assoc __rcu	  *psp_assoc;
+#endif
 };
 
 static inline struct tcp_timewait_sock *tcp_twsk(const struct sock *sk)
