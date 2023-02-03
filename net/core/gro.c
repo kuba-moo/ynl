@@ -250,6 +250,7 @@ int skb_gro_receive(struct sk_buff *p, struct sk_buff *skb)
 		delta_truesize = skb->truesize - new_truesize;
 		skb->truesize = new_truesize;
 		NAPI_GRO_CB(skb)->free = NAPI_GRO_FREE_STOLEN_HEAD;
+		skb_head_stolen(skb);
 		goto done;
 	}
 
