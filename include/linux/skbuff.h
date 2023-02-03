@@ -1261,6 +1261,8 @@ struct sk_buff *build_skb_around(struct sk_buff *skb,
 				 void *data, unsigned int frag_size);
 void skb_attempt_defer_free(struct sk_buff *skb);
 
+struct sk_buff *napi_build_skb_ext(void *data, unsigned int frag_size,
+				   unsigned int ext_size);
 struct sk_buff *napi_build_skb(void *data, unsigned int frag_size);
 struct sk_buff *slab_build_skb(void *data);
 
@@ -4605,6 +4607,16 @@ enum skb_ext_id {
 	SKB_EXT_NUM, /* must be last */
 };
 
+enum skb_ext_ref {
+	/* Normal skb ext from the kmem_cache */
+	SKB_EXT_ALLOC_SLAB,
+	/* Shard is a read-only skb ext placed after shinfo in the head,
+	 * shards may be shorter than full skb_ext length!
+	 */
+	SKB_EXT_ALLOC_SHARD_NOREF,
+	SKB_EXT_ALLOC_SHARD_REF,
+};
+
 /**
  *	struct skb_ext - sk_buff extensions
  *	@refcnt: 1 on allocation, deallocated on 0
@@ -4617,6 +4629,7 @@ enum skb_ext_id {
  */
 struct skb_ext {
 	refcount_t refcnt;
+	u8 alloc_type;
 	u8 offset[SKB_EXT_NUM]; /* in chunks of 8 bytes */
 	u8 chunks;		/* same */
 	char data[] __aligned(8);
@@ -4627,8 +4640,10 @@ void *__skb_ext_set(struct sk_buff *skb, enum skb_ext_id id,
 		    struct skb_ext *ext);
 void *skb_ext_add(struct sk_buff *skb, enum skb_ext_id id);
 void *napi_skb_ext_add(struct sk_buff *skb, enum skb_ext_id id);
+void *skb_ext_add_inplace(struct sk_buff *skb, enum skb_ext_id id);
 void __skb_ext_del(struct sk_buff *skb, enum skb_ext_id id);
 void __skb_ext_put(struct skb_ext *ext);
+void __skb_ext_copy_get(struct skb_ext *ext);
 
 static inline void skb_ext_put(struct sk_buff *skb)
 {
@@ -4644,7 +4659,7 @@ static inline void __skb_ext_copy(struct sk_buff *dst,
 	if (src->active_extensions) {
 		struct skb_ext *ext = src->extensions;
 
-		refcount_inc(&ext->refcnt);
+		__skb_ext_copy_get(ext);
 		dst->extensions = ext;
 	}
 }
@@ -4702,6 +4717,18 @@ static inline void __skb_ext_copy(struct sk_buff *d, const struct sk_buff *s) {}
 static inline void skb_ext_copy(struct sk_buff *dst, const struct sk_buff *s) {}
 static inline bool skb_has_extensions(struct sk_buff *skb) { return false; }
 #endif /* CONFIG_SKB_EXTENSIONS */
+
+/* Head got merged into another skb, skb itself will be freed later by
+ * kfree_skb_partial() or napi_skb_free_stolen_head().
+ */
+static inline void skb_head_stolen(struct sk_buff *skb)
+{
+#ifdef CONFIG_SKB_EXTENSIONS
+	if (unlikely(skb->active_extensions) &&
+	    skb->extensions->alloc_type == SKB_EXT_ALLOC_SHARD_NOREF)
+		skb->active_extensions = 0;
+#endif
+}
 
 static inline void nf_reset_ct(struct sk_buff *skb)
 {

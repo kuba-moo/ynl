@@ -128,6 +128,8 @@ const char * const drop_reasons[] = {
 };
 EXPORT_SYMBOL(drop_reasons);
 
+static int skb_ext_evacuate_head(struct sk_buff *skb);
+
 /**
  *	skb_panic - private function for out-of-line support
  *	@skb:	buffer
@@ -501,6 +503,35 @@ struct sk_buff *napi_build_skb(void *data, unsigned int frag_size)
 	return skb;
 }
 EXPORT_SYMBOL(napi_build_skb);
+
+/**
+ * napi_build_skb_ext - build a network buffer with in-place skb_ext
+ * @data: data buffer provided by caller
+ * @frag_size: size of data
+ * @ext_size: size of space to reserve for skb_ext
+ *
+ * Version of napi_build_skb() that reserves space in the head for
+ * struct skb_ext. If @ext_size is zero or skb_ext_add_inplace()
+ * is never called there should be no performance loss compared
+ * to napi_build_skb().
+ *
+ * Returns a new &sk_buff on success, %NULL on allocation failure.
+ */
+struct sk_buff *
+napi_build_skb_ext(void *data, unsigned int frag_size, unsigned int ext_size)
+{
+	struct sk_buff *skb;
+
+	skb = __napi_build_skb(data, frag_size - ext_size);
+	if (unlikely(!skb))
+		return NULL;
+
+	skb->head_frag = 1;
+	skb_propagate_pfmemalloc(virt_to_head_page(data), skb);
+
+	return skb;
+}
+EXPORT_SYMBOL(napi_build_skb_ext);
 
 /*
  * kmalloc_reserve is a wrapper around kmalloc_node_track_caller that tells
@@ -1257,7 +1288,9 @@ static void napi_skb_ext_put(struct sk_buff *skb)
 	if (!skb_ext_needs_destruct(ext)) {
 		struct napi_alloc_cache *nc = this_cpu_ptr(&napi_alloc_cache);
 
-		if (refcount_read(&ext->refcnt) == 1 && !nc->ext) {
+		if (refcount_read(&ext->refcnt) == 1 &&
+		    ext->alloc_type == SKB_EXT_ALLOC_SLAB &&
+		    !nc->ext) {
 			kasan_poison_object_data(skbuff_ext_cache, ext);
 			nc->ext = ext;
 			return;
@@ -2031,6 +2064,9 @@ int pskb_expand_head(struct sk_buff *skb, int nhead, int ntail,
 
 	if (skb_pfmemalloc(skb))
 		gfp_mask |= __GFP_MEMALLOC;
+
+	if (skb_ext_evacuate_head(skb))
+		return -ENOMEM;
 
 	data = kmalloc_reserve(&size, gfp_mask, NUMA_NO_NODE, NULL);
 	if (!data)
@@ -5670,6 +5706,7 @@ bool skb_try_coalesce(struct sk_buff *to, struct sk_buff *from,
 
 		skb_fill_page_desc(to, to_shinfo->nr_frags,
 				   page, offset, skb_headlen(from));
+		skb_head_stolen(from);
 		*fragstolen = true;
 	} else {
 		if (to_shinfo->nr_frags +
@@ -6393,6 +6430,9 @@ static int pskb_carve_inside_header(struct sk_buff *skb, const u32 off,
 	if (skb_pfmemalloc(skb))
 		gfp_mask |= __GFP_MEMALLOC;
 
+	if (skb_ext_evacuate_head(skb))
+		return -ENOMEM;
+
 	data = kmalloc_reserve(&size, gfp_mask, NUMA_NO_NODE, NULL);
 	if (!data)
 		return -ENOMEM;
@@ -6508,6 +6548,9 @@ static int pskb_carve_inside_nonlinear(struct sk_buff *skb, const u32 off,
 
 	if (skb_pfmemalloc(skb))
 		gfp_mask |= __GFP_MEMALLOC;
+
+	if (skb_ext_evacuate_head(skb))
+		return -ENOMEM;
 
 	data = kmalloc_reserve(&size, gfp_mask, NUMA_NO_NODE, NULL);
 	if (!data)
@@ -6643,10 +6686,11 @@ static void *skb_ext_get_ptr(struct skb_ext *ext, enum skb_ext_id id)
 	return (void *)ext + (ext->offset[id] * SKB_EXT_ALIGN_VALUE);
 }
 
-static void skb_ext_init(struct skb_ext *new)
+static void skb_ext_init_slab(struct skb_ext *new)
 {
 	memset(new->offset, 0, sizeof(new->offset));
 	refcount_set(&new->refcnt, 1);
+	new->alloc_type = SKB_EXT_ALLOC_SLAB;
 }
 
 /**
@@ -6663,7 +6707,7 @@ struct skb_ext *__skb_ext_alloc(gfp_t flags)
 	struct skb_ext *new = kmem_cache_alloc(skbuff_ext_cache, flags);
 
 	if (new)
-		skb_ext_init(new);
+		skb_ext_init_slab(new);
 
 	return new;
 }
@@ -6673,7 +6717,8 @@ static struct skb_ext *skb_ext_maybe_cow(struct skb_ext *old,
 {
 	struct skb_ext *new;
 
-	if (refcount_read(&old->refcnt) == 1)
+	if (refcount_read(&old->refcnt) == 1 &&
+	    old->alloc_type == SKB_EXT_ALLOC_SLAB)
 		return old;
 
 	new = kmem_cache_alloc(skbuff_ext_cache, GFP_ATOMIC);
@@ -6682,6 +6727,7 @@ static struct skb_ext *skb_ext_maybe_cow(struct skb_ext *old,
 
 	memcpy(new, old, old->chunks * SKB_EXT_ALIGN_VALUE);
 	refcount_set(&new->refcnt, 1);
+	new->alloc_type = SKB_EXT_ALLOC_SLAB;
 
 #ifdef CONFIG_XFRM
 	if (old_active & (1 << SKB_EXT_SEC_PATH)) {
@@ -6797,12 +6843,40 @@ void *napi_skb_ext_add(struct sk_buff *skb, enum skb_ext_id id)
 				return NULL;
 		}
 
-		skb_ext_init(new);
+		skb_ext_init_slab(new);
 	}
 
 	return skb_ext_add_finalize(skb, id, new);
 }
 EXPORT_SYMBOL(napi_skb_ext_add);
+
+/**
+ * skb_ext_add_inplace - allocate ext space in napi_build_skb_ext() skb
+ * @skb: buffer
+ * @id: extension to allocate space for
+ *
+ * Creates an extension in a private skb allocated with napi_build_skb_ext().
+ * The caller must have allocated the @skb and must guarantee that there
+ * will be enough space for all the extensions.
+ *
+ * Returns pointer to the extension or NULL on failure.
+ */
+void *skb_ext_add_inplace(struct sk_buff *skb, enum skb_ext_id id)
+{
+	struct skb_ext *new = NULL;
+
+	if (!skb->active_extensions) {
+		new = (void *)&skb_shinfo(skb)[1];
+		skb->extensions = new;
+
+		memset(new->offset, 0, sizeof(new->offset));
+		refcount_set(&new->refcnt, 1);
+		new->alloc_type = SKB_EXT_ALLOC_SHARD_NOREF;
+	}
+
+	return skb_ext_add_finalize(skb, id, new);
+}
+EXPORT_SYMBOL(skb_ext_add_inplace);
 
 #ifdef CONFIG_XFRM
 static void skb_ext_put_sp(struct sec_path *sp)
@@ -6850,8 +6924,11 @@ void __skb_ext_put(struct skb_ext *ext)
 	if (refcount_read(&ext->refcnt) == 1)
 		goto free_now;
 
-	if (!refcount_dec_and_test(&ext->refcnt))
+	if (!refcount_dec_and_test(&ext->refcnt)) {
+		if (ext->alloc_type == SKB_EXT_ALLOC_SHARD_REF)
+			goto free_shard;
 		return;
+	}
 free_now:
 #ifdef CONFIG_XFRM
 	if (__skb_ext_exist(ext, SKB_EXT_SEC_PATH))
@@ -6862,9 +6939,74 @@ free_now:
 		skb_ext_put_mctp(skb_ext_get_ptr(ext, SKB_EXT_MCTP));
 #endif
 
-	kmem_cache_free(skbuff_ext_cache, ext);
+	switch (ext->alloc_type) {
+	case SKB_EXT_ALLOC_SLAB:
+		kmem_cache_free(skbuff_ext_cache, ext);
+		break;
+	case SKB_EXT_ALLOC_SHARD_NOREF:
+		break;
+	case SKB_EXT_ALLOC_SHARD_REF:
+free_shard:
+		skb_free_frag(ext);
+		break;
+	}
 }
 EXPORT_SYMBOL(__skb_ext_put);
+
+/* Only safe to use as part of a copy operation */
+void __skb_ext_copy_get(struct skb_ext *ext)
+{
+	struct page *head_page;
+	unsigned int type;
+	int old;
+
+	__refcount_inc(&ext->refcnt, &old);
+
+	type = READ_ONCE(ext->alloc_type);
+	if (type == SKB_EXT_ALLOC_SLAB)
+		return;
+
+	head_page = virt_to_head_page(ext);
+	get_page(head_page);
+
+	/* First reference to a shard does not hold a reference to
+	 * the underlying page, take it now. This function can only
+	 * be called during copy, so caller has a reference on ext,
+	 * we just took the second one - there is no risk that two
+	 * callers will race to do this upgrade.
+	 */
+	if (type == SKB_EXT_ALLOC_SHARD_NOREF && old == 1) {
+		get_page(head_page);
+		WRITE_ONCE(ext->alloc_type, SKB_EXT_ALLOC_SHARD_REF);
+	}
+}
+EXPORT_SYMBOL(__skb_ext_copy_get);
+
+static int skb_ext_evacuate_head(struct sk_buff *skb)
+{
+	struct skb_ext *old, *new;
+
+	if (likely(!skb->active_extensions))
+		return 0;
+	old = skb->extensions;
+	if (old->alloc_type != SKB_EXT_ALLOC_SHARD_NOREF)
+		return 0;
+
+	WARN_ON_ONCE(!skb->head_frag);
+	new = kmem_cache_alloc(skbuff_ext_cache, GFP_ATOMIC);
+	if (!new)
+		return -ENOMEM;
+
+	memcpy(new, old, old->chunks * SKB_EXT_ALIGN_VALUE);
+	WARN_ON_ONCE(refcount_read(&old->refcnt) != 1);
+	refcount_set(&new->refcnt, 1);
+	new->alloc_type = SKB_EXT_ALLOC_SLAB;
+
+	skb->extensions = new;
+	/* We're dealing with NOREF and we copied contents, so no freeing */
+
+	return 0;
+}
 #endif /* CONFIG_SKB_EXTENSIONS */
 
 /**
