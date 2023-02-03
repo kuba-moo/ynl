@@ -8,6 +8,8 @@
 #include <net/sock.h>
 #include <net/psp/types.h>
 
+#include <trace/events/tcp.h>
+
 /* Driver-facing API */
 struct psp_dev *
 psp_dev_create(struct net_device *netdev, struct psp_dev_ops *psd_ops,
@@ -49,6 +51,9 @@ psp_sk_rx_policy_check(struct sock *sk, struct sk_buff *skb)
 
 	pse = skb_ext_find(skb, SKB_EXT_PSP);
 	pas = rcu_dereference(sk->psp_assoc);
+
+	trace_psp_rx_policy_check(pse, pas);
+
 	if (!pse) {
 		if (pas && READ_ONCE(pas->rx_required))
 			return SKB_DROP_REASON_PSP_INPUT;
