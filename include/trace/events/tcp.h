@@ -728,6 +728,28 @@ DEFINE_EVENT(tcp_ao_event_sne, tcp_ao_rcv_sne_update,
 	TP_ARGS(sk, new_sne)
 );
 
+struct psp_skb_ext;
+struct psp_assoc;
+
+TRACE_EVENT(psp_rx_policy_check,
+
+	TP_PROTO(struct psp_skb_ext *pse, struct psp_assoc *pas),
+
+	TP_ARGS(pse, pas),
+
+	TP_STRUCT__entry(
+		__field(struct psp_skb_ext *, pse)
+		__field(struct psp_assoc *, pas)
+	),
+
+	TP_fast_assign(
+		__entry->pse = pse;
+		__entry->pas = pas;
+	),
+
+	TP_printk("howdy, %p %p", __entry->pse, __entry->pas)
+);
+
 #endif /* _TRACE_TCP_H */
 
 /* This part must be outside protection */

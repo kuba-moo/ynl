@@ -8,6 +8,8 @@
 #include <net/sock.h>
 #include <net/psp/types.h>
 
+#include <trace/events/tcp.h>
+
 struct tcp_timewait_sock;
 
 /* Driver-facing API */
@@ -64,6 +66,8 @@ __psp_skb_coalesce_diff(const struct sk_buff *one, const struct sk_buff *two,
 static inline enum skb_drop_reason
 __psp_sk_rx_policy_check(struct psp_skb_ext *pse, struct psp_assoc *pas)
 {
+	trace_psp_rx_policy_check(pse, pas);
+
 	if (!pse) {
 		if (pas && READ_ONCE(pas->rx_required))
 			return SKB_DROP_REASON_PSP_INPUT;
