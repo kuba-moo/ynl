@@ -224,6 +224,9 @@ static void *page_frag_alloc_1k(struct page_frag_1k *nc, gfp_t gfp_mask)
 struct napi_alloc_cache {
 	struct page_frag_cache page;
 	struct page_frag_1k page_small;
+#ifdef CONFIG_SKB_EXTENSIONS
+	struct skb_ext *ext;
+#endif
 	unsigned int skb_count;
 	void *skb_cache[NAPI_SKB_CACHE_SIZE];
 };
@@ -1228,6 +1231,43 @@ static void napi_skb_cache_put(struct sk_buff *skb)
 	}
 }
 
+static bool skb_ext_needs_destruct(const struct skb_ext *ext)
+{
+	bool needs_destruct = false;
+
+#ifdef CONFIG_XFRM
+	needs_destruct |= __skb_ext_exist(ext, SKB_EXT_SEC_PATH);
+#endif
+#ifdef CONFIG_MCTP_FLOWS
+	needs_destruct |= __skb_ext_exist(ext, SKB_EXT_MCTP);
+#endif
+
+	return needs_destruct;
+}
+
+static void napi_skb_ext_put(struct sk_buff *skb)
+{
+#ifdef CONFIG_SKB_EXTENSIONS
+	struct skb_ext *ext;
+
+	if (!skb->active_extensions)
+		return;
+
+	ext = skb->extensions;
+	if (!skb_ext_needs_destruct(ext)) {
+		struct napi_alloc_cache *nc = this_cpu_ptr(&napi_alloc_cache);
+
+		if (refcount_read(&ext->refcnt) == 1 && !nc->ext) {
+			kasan_poison_object_data(skbuff_ext_cache, ext);
+			nc->ext = ext;
+			return;
+		}
+	}
+
+	__skb_ext_put(ext);
+#endif
+}
+
 void __kfree_skb_defer(struct sk_buff *skb)
 {
 	skb_release_all(skb, SKB_DROP_REASON_NOT_SPECIFIED);
@@ -1239,7 +1279,7 @@ void napi_skb_free_stolen_head(struct sk_buff *skb)
 	if (unlikely(skb->slow_gro)) {
 		nf_reset_ct(skb);
 		skb_dst_drop(skb);
-		skb_ext_put(skb);
+		napi_skb_ext_put(skb);
 		skb_orphan(skb);
 		skb->slow_gro = 0;
 	}
@@ -6603,6 +6643,12 @@ static void *skb_ext_get_ptr(struct skb_ext *ext, enum skb_ext_id id)
 	return (void *)ext + (ext->offset[id] * SKB_EXT_ALIGN_VALUE);
 }
 
+static void skb_ext_init(struct skb_ext *new)
+{
+	memset(new->offset, 0, sizeof(new->offset));
+	refcount_set(&new->refcnt, 1);
+}
+
 /**
  * __skb_ext_alloc - allocate a new skb extensions storage
  *
@@ -6616,10 +6662,8 @@ struct skb_ext *__skb_ext_alloc(gfp_t flags)
 {
 	struct skb_ext *new = kmem_cache_alloc(skbuff_ext_cache, flags);
 
-	if (new) {
-		memset(new->offset, 0, sizeof(new->offset));
-		refcount_set(&new->refcnt, 1);
-	}
+	if (new)
+		skb_ext_init(new);
 
 	return new;
 }
@@ -6734,6 +6778,31 @@ void *skb_ext_add(struct sk_buff *skb, enum skb_ext_id id)
 	return skb_ext_add_finalize(skb, id, new);
 }
 EXPORT_SYMBOL(skb_ext_add);
+
+void *napi_skb_ext_add(struct sk_buff *skb, enum skb_ext_id id)
+{
+	struct skb_ext *new = NULL;
+
+	if (!skb->active_extensions) {
+		struct napi_alloc_cache *nc;
+
+		nc = this_cpu_ptr(&napi_alloc_cache);
+		new = nc->ext;
+		if (new) {
+			kasan_unpoison_object_data(skbuff_ext_cache, new);
+			nc->ext = NULL;
+		} else {
+			new = kmem_cache_alloc(skbuff_ext_cache, GFP_ATOMIC);
+			if (!new)
+				return NULL;
+		}
+
+		skb_ext_init(new);
+	}
+
+	return skb_ext_add_finalize(skb, id, new);
+}
+EXPORT_SYMBOL(napi_skb_ext_add);
 
 #ifdef CONFIG_XFRM
 static void skb_ext_put_sp(struct sec_path *sp)
