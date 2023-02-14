@@ -6676,6 +6676,37 @@ void *__skb_ext_set(struct sk_buff *skb, enum skb_ext_id id,
 	return skb_ext_get_ptr(ext, id);
 }
 
+static void *skb_ext_add_finalize(struct sk_buff *skb, enum skb_ext_id id,
+				  struct skb_ext *new)
+{
+	unsigned int newlen, newoff;
+	struct skb_ext *old;
+
+	if (!new) {
+		old = skb->extensions;
+
+		new = skb_ext_maybe_cow(old, skb->active_extensions);
+		if (!new)
+			return NULL;
+
+		if (__skb_ext_exist(new, id))
+			goto set_active;
+
+		newoff = new->chunks;
+	} else {
+		newoff = SKB_EXT_CHUNKSIZEOF(*new);
+	}
+
+	newlen = newoff + skb_ext_type_len[id];
+	new->chunks = newlen;
+	new->offset[id] = newoff;
+set_active:
+	skb->slow_gro = 1;
+	skb->extensions = new;
+	skb->active_extensions |= 1 << id;
+	return skb_ext_get_ptr(new, id);
+}
+
 /**
  * skb_ext_add - allocate space for given extension, COW if needed
  * @skb: buffer
@@ -6692,36 +6723,15 @@ void *__skb_ext_set(struct sk_buff *skb, enum skb_ext_id id,
  */
 void *skb_ext_add(struct sk_buff *skb, enum skb_ext_id id)
 {
-	struct skb_ext *new, *old = NULL;
-	unsigned int newlen, newoff;
+	struct skb_ext *new = NULL;
 
-	if (skb->active_extensions) {
-		old = skb->extensions;
-
-		new = skb_ext_maybe_cow(old, skb->active_extensions);
-		if (!new)
-			return NULL;
-
-		if (__skb_ext_exist(new, id))
-			goto set_active;
-
-		newoff = new->chunks;
-	} else {
-		newoff = SKB_EXT_CHUNKSIZEOF(*new);
-
+	if (!skb->active_extensions) {
 		new = __skb_ext_alloc(GFP_ATOMIC);
 		if (!new)
 			return NULL;
 	}
 
-	newlen = newoff + skb_ext_type_len[id];
-	new->chunks = newlen;
-	new->offset[id] = newoff;
-set_active:
-	skb->slow_gro = 1;
-	skb->extensions = new;
-	skb->active_extensions |= 1 << id;
-	return skb_ext_get_ptr(new, id);
+	return skb_ext_add_finalize(skb, id, new);
 }
 EXPORT_SYMBOL(skb_ext_add);
 
