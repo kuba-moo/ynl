@@ -770,6 +770,15 @@ static inline struct tc_skb_ext *tc_skb_ext_alloc(struct sk_buff *skb)
 		memset(tc_skb_ext, 0, sizeof(*tc_skb_ext));
 	return tc_skb_ext;
 }
+
+static inline struct tc_skb_ext *tc_skb_ext_alloc_napi(struct sk_buff *skb)
+{
+	struct tc_skb_ext *tc_skb_ext = napi_skb_ext_add(skb, TC_SKB_EXT);
+
+	if (tc_skb_ext)
+		memset(tc_skb_ext, 0, sizeof(*tc_skb_ext));
+	return tc_skb_ext;
+}
 #endif
 
 enum tc_matchall_command {

@@ -5657,7 +5657,7 @@ static bool mlx5e_tc_restore_skb_tc_meta(struct sk_buff *skb, struct mlx5_tc_ct_
 		if (!mlx5e_tc_ct_restore_flow(ct_priv, skb, zone_restore_id))
 			return false;
 
-		tc_skb_ext = tc_skb_ext_alloc(skb);
+		tc_skb_ext = tc_skb_ext_alloc_napi(skb);
 		if (!tc_skb_ext) {
 			WARN_ON(1);
 			return false;
