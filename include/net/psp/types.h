@@ -9,6 +9,23 @@
 struct net_device;
 struct netlink_ext_ack;
 
+struct psphdr {
+	u8	nexthdr;
+	u8	hdrlen;
+	u8	crypt_offset;
+	u8	verfl;
+	__be32	spi;
+	__be64	iv;
+	__be64	vc[]; /* optional */
+};
+
+#define PSPHDR_CRYPT_OFFSET	GENMASK(7, 2)
+
+#define PSPHDR_VERFL_SAMPLE	BIT(0)
+#define PSPHDR_VERFL_DROP	BIT(1)
+#define PSPHDR_VERFL_VERSION	GENMASK(5, 2)
+#define PSPHDR_VERFL_VIRT	BIT(6)
+
 /**
  * struct psp_dev_config - PSP device configuration
  * @versions: PSP versions enabled on the device
