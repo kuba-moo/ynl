@@ -9,6 +9,7 @@
  *
  */
 
+#include <linux/bitfield.h>
 #include <linux/netdevice.h>
 #include <linux/slab.h>
 #include <linux/ethtool.h>
@@ -17,6 +18,7 @@
 
 #include <net/rtnetlink.h>
 #include <net/dst.h>
+#include <net/psp.h>
 #include <net/xfrm.h>
 #include <net/xdp.h>
 #include <linux/veth.h>
@@ -73,6 +75,7 @@ struct veth_priv {
 	struct bpf_prog		*_xdp_prog;
 	struct veth_rq		*rq;
 	unsigned int		requested_headroom;
+	struct psp_dev		*psp;
 };
 
 struct veth_xdp_tx_bq {
@@ -287,12 +290,179 @@ static int veth_xdp_rx(struct veth_rq *rq, struct sk_buff *skb)
 	return NET_RX_SUCCESS;
 }
 
+static int
+veth_psp_set_config(struct psp_dev *psd, struct psp_dev_config *conf,
+		    struct netlink_ext_ack *extack)
+{
+	return 0;
+}
+
+static int
+veth_rx_spi_alloc(struct psp_dev *psd, u32 version,
+		  struct psp_key_parsed *assoc,
+		  struct netlink_ext_ack *extack)
+{
+	static unsigned int spi;
+	int i;
+
+	assoc->spi = cpu_to_be32(++spi);
+	for (i = 0; i < PSP_MAX_KEY; i++)
+		assoc->key[i] = spi + i;
+
+	return 0;
+}
+
+static int veth_assoc_add(struct psp_dev *psd, struct psp_assoc *pas,
+			  struct netlink_ext_ack *extack)
+{
+	pr_info("PSP assoc add: rx:%u tx:%u\n",
+		be32_to_cpu(pas->rx.spi), be32_to_cpu(pas->tx.spi));
+
+	return 0;
+}
+
+static int veth_key_rotate(struct psp_dev *psd, struct netlink_ext_ack *extack)
+{
+	pr_info("PSP key rotation\n");
+
+	return 0;
+}
+
+static void veth_assoc_del(struct psp_dev *psd, struct psp_assoc *tas)
+{
+}
+
+static struct psp_dev_ops veth_psp_ops = {
+	.set_config	= veth_psp_set_config,
+	.rx_spi_alloc	= veth_rx_spi_alloc,
+	.assoc_add	= veth_assoc_add,
+	.assoc_del	= veth_assoc_del,
+	.key_rotate	= veth_key_rotate,
+};
+
+static struct psp_dev_caps veth_psp_caps = {
+	.versions = 1 << PSP_VERSION_HDR0_AES_GCM_128 |
+		    1 << PSP_VERSION_HDR0_AES_GMAC_128,
+};
+
+struct psp_insert {
+	struct udphdr udp;
+	struct psphdr psp;
+};
+
+static struct sk_buff *veth_do_psp_realloc(struct sk_buff *old)
+{
+	unsigned int headroom, tlen, elen;
+	struct sk_buff *new;
+	struct page *page;
+
+	headroom = max_t(u32, skb_headroom(old), sizeof(struct psp_insert));
+
+	elen = SKB_DATA_ALIGN(64);
+
+	tlen = SKB_DATA_ALIGN(headroom + old->len);
+	tlen += SKB_DATA_ALIGN(sizeof(struct skb_shared_info));
+	tlen += elen;
+
+	page = alloc_pages(GFP_ATOMIC | __GFP_NOWARN, get_order(tlen));
+	if (!page)
+		goto err_free;
+
+	if (skb_copy_bits(old, 0, page_address(page) + headroom, old->len))
+		goto err_free_page;
+
+	local_bh_disable();
+	new = napi_build_skb_ext(page_address(page), tlen, elen);
+	local_bh_enable();
+	if (!new)
+		goto err_free_page;
+
+	skb_reserve(new, headroom);
+	skb_put(new, old->len);
+
+	skb_reset_mac_header(new);
+	new->ip_summed		= CHECKSUM_UNNECESSARY;
+
+	skb_shinfo(new)->gso_size = skb_shinfo(old)->gso_size;
+	skb_shinfo(new)->gso_segs = skb_shinfo(old)->gso_segs;
+	skb_shinfo(new)->gso_type = skb_shinfo(old)->gso_type;
+
+	consume_skb(old);
+
+	return new;
+err_free_page:
+	put_page(page);
+err_free:
+	kfree_skb_reason(old, SKB_DROP_REASON_PSP_OUTPUT);
+	return NULL;
+}
+
+static struct sk_buff *veth_do_psp(struct sk_buff *skb, struct net_device *dev)
+{
+	struct psp_skb_ext *pse;
+	struct psp_insert *psp;
+	struct psp_assoc *pas;
+	unsigned int offs;
+
+	pas = psp_skb_get_assoc_rcu(skb);
+	if (!pas)
+		return skb;
+
+	offs = skb_transport_offset(skb) + 4;
+	skb = veth_do_psp_realloc(skb);
+	if (!skb)
+		return NULL;
+
+	/* For a mock-up we just push the PSP header in front, but in real
+	 * device we need to insert it in the middle of headers and adjust
+	 * the offsets.
+	 */
+	psp = skb_push(skb, sizeof(*psp));
+	skb_pull(skb, sizeof(*psp));
+
+	psp->udp.source = htons(1234);
+	psp->udp.dest = htons(1000);
+	psp->udp.len = htons(skb->len);
+	psp->udp.check = 0;
+
+	psp->psp.nexthdr = 1;
+	psp->psp.hdrlen = (sizeof(struct psphdr) - 8) >> 3;
+	psp->psp.crypt_offset = FIELD_PREP(PSPHDR_CRYPT_OFFSET, offs);
+	psp->psp.verfl = FIELD_PREP(PSPHDR_VERFL_VERSION, pas->version);
+	psp->psp.spi = pas->tx.spi;
+	psp->psp.iv = cpu_to_be64(sched_clock());
+
+	skb->decrypted = 1;
+	pse = skb_ext_add_inplace(skb, SKB_EXT_PSP);
+	if (!pse)
+		goto err_drop;
+
+	pse->spi = pas->tx.spi;
+	pse->generation = 0; /* TODO */
+	pse->version = pas->version;
+
+	return skb;
+
+err_drop:
+	kfree_skb_reason(skb, SKB_DROP_REASON_PSP_OUTPUT);
+	return NULL;
+}
+
 static int veth_forward_skb(struct net_device *dev, struct sk_buff *skb,
 			    struct veth_rq *rq, bool xdp)
 {
-	return __dev_forward_skb(dev, skb) ?: xdp ?
-		veth_xdp_rx(rq, skb) :
-		__netif_rx(skb);
+	int ret;
+
+	if (skb->active_extensions) {
+		skb->protocol = eth_type_trans(skb, dev);
+		skb_postpull_rcsum(skb, eth_hdr(skb), ETH_HLEN);
+	} else {
+		ret = __dev_forward_skb(dev, skb);
+		if (ret)
+			return ret;
+	}
+
+	return xdp ? veth_xdp_rx(rq, skb) : __netif_rx(skb);
 }
 
 /* return true if the specified skb has chances of GRO aggregation
@@ -329,6 +499,10 @@ static netdev_tx_t veth_xmit(struct sk_buff *skb, struct net_device *dev)
 		kfree_skb(skb);
 		goto drop;
 	}
+
+	skb = veth_do_psp(skb, dev);
+	if (!skb)
+		goto drop;
 
 	rcv_priv = netdev_priv(rcv);
 	rxq = skb_get_queue_mapping(skb);
@@ -1850,11 +2024,19 @@ static int veth_newlink(struct net *src_net, struct net_device *dev,
 	if (err)
 		goto err_queues;
 
+	priv->psp = psp_dev_create(dev, &veth_psp_ops,
+				   &veth_psp_caps, NULL);
+	WARN_ON(!priv->psp);
+
 	priv = netdev_priv(peer);
 	rcu_assign_pointer(priv->peer, dev);
 	err = veth_init_queues(peer, tb);
 	if (err)
 		goto err_queues;
+
+	priv->psp = psp_dev_create(peer, &veth_psp_ops,
+				   &veth_psp_caps, NULL);
+	WARN_ON(!priv->psp);
 
 	veth_disable_gro(dev);
 	return 0;
@@ -1885,10 +2067,12 @@ static void veth_dellink(struct net_device *dev, struct list_head *head)
 	 * not being freed before one RCU grace period.
 	 */
 	RCU_INIT_POINTER(priv->peer, NULL);
+	psp_dev_unregister(priv->psp);
 	unregister_netdevice_queue(dev, head);
 
 	if (peer) {
 		priv = netdev_priv(peer);
+		psp_dev_unregister(priv->psp);
 		RCU_INIT_POINTER(priv->peer, NULL);
 		unregister_netdevice_queue(peer, head);
 	}
@@ -1950,3 +2134,4 @@ module_exit(veth_exit);
 MODULE_DESCRIPTION("Virtual Ethernet Tunnel");
 MODULE_LICENSE("GPL v2");
 MODULE_ALIAS_RTNL_LINK(DRV_NAME);
+MODULE_IMPORT_NS(NETDEV_PRIVATE);
