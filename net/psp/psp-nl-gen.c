@@ -10,6 +10,12 @@
 
 #include <linux/psp.h>
 
+/* Common nested types */
+const struct nla_policy psp_keys_nl_policy[PSP_A_KEYS_SPI + 1] = {
+	[PSP_A_KEYS_KEY] = { .type = NLA_BINARY, },
+	[PSP_A_KEYS_SPI] = { .type = NLA_U32, },
+};
+
 /* PSP_CMD_DEV_GET - do */
 static const struct nla_policy psp_dev_get_nl_policy[PSP_A_DEV_ID + 1] = {
 	[PSP_A_DEV_ID] = NLA_POLICY_MIN(NLA_U32, 1),
@@ -21,8 +27,23 @@ static const struct nla_policy psp_dev_set_nl_policy[PSP_A_DEV_PSP_VERSIONS_ENA 
 	[PSP_A_DEV_PSP_VERSIONS_ENA] = NLA_POLICY_MASK(NLA_U32, 0xf),
 };
 
+/* PSP_CMD_RX_ASSOC_ALLOC - do */
+static const struct nla_policy psp_rx_assoc_alloc_nl_policy[PSP_A_ASSOC_VERSION + 1] = {
+	[PSP_A_ASSOC_DEV_ID] = NLA_POLICY_MIN(NLA_U32, 1),
+	[PSP_A_ASSOC_VERSION] = NLA_POLICY_MAX(NLA_U32, 3),
+};
+
+/* PSP_CMD_ASSOC_ADD - do */
+static const struct nla_policy psp_assoc_add_nl_policy[PSP_A_ASSOC_SOCK_FD + 1] = {
+	[PSP_A_ASSOC_DEV_ID] = NLA_POLICY_MIN(NLA_U32, 1),
+	[PSP_A_ASSOC_VERSION] = NLA_POLICY_MAX(NLA_U32, 3),
+	[PSP_A_ASSOC_TX_KEY] = NLA_POLICY_NESTED(psp_keys_nl_policy),
+	[PSP_A_ASSOC_RX_KEY] = NLA_POLICY_NESTED(psp_keys_nl_policy),
+	[PSP_A_ASSOC_SOCK_FD] = { .type = NLA_U32, },
+};
+
 /* Ops table for psp */
-static const struct genl_split_ops psp_nl_ops[3] = {
+static const struct genl_split_ops psp_nl_ops[5] = {
 	{
 		.cmd		= PSP_CMD_DEV_GET,
 		.pre_doit	= psp_device_get_locked,
@@ -44,6 +65,24 @@ static const struct genl_split_ops psp_nl_ops[3] = {
 		.post_doit	= psp_device_unlock,
 		.policy		= psp_dev_set_nl_policy,
 		.maxattr	= PSP_A_DEV_PSP_VERSIONS_ENA,
+		.flags		= GENL_CMD_CAP_DO,
+	},
+	{
+		.cmd		= PSP_CMD_RX_ASSOC_ALLOC,
+		.pre_doit	= psp_assoc_device_get_locked,
+		.doit		= psp_nl_rx_assoc_alloc_doit,
+		.post_doit	= psp_device_unlock,
+		.policy		= psp_rx_assoc_alloc_nl_policy,
+		.maxattr	= PSP_A_ASSOC_VERSION,
+		.flags		= GENL_CMD_CAP_DO,
+	},
+	{
+		.cmd		= PSP_CMD_ASSOC_ADD,
+		.pre_doit	= psp_assoc_device_get_locked,
+		.doit		= psp_nl_assoc_add_doit,
+		.post_doit	= psp_device_unlock,
+		.policy		= psp_assoc_add_nl_policy,
+		.maxattr	= PSP_A_ASSOC_SOCK_FD,
 		.flags		= GENL_CMD_CAP_DO,
 	},
 };

@@ -51,7 +51,10 @@ psp_dev_create(struct net_device *netdev,
 	int err;
 
 	if (WARN_ON(!psd_caps->versions ||
-		    !psd_ops->set_config))
+		    !psd_ops->set_config ||
+		    !psd_ops->rx_spi_alloc ||
+		    !psd_ops->assoc_add ||
+		    !psd_ops->assoc_del))
 		return NULL;
 
 	psd = kzalloc(sizeof(*psd), GFP_KERNEL);
@@ -62,6 +65,7 @@ psp_dev_create(struct net_device *netdev,
 	psd->drv_priv = priv_ptr;
 
 	mutex_init(&psd->lock);
+	INIT_LIST_HEAD(&psd->active_assocs);
 	refcount_set(&psd->refcnt, 1);
 
 	mutex_lock(&psp_devs_lock);
@@ -124,17 +128,21 @@ static struct pernet_operations psp_pernet_ops = {
  */
 void psp_dev_unregister(struct psp_dev *psd)
 {
+	struct psp_assoc *pas, *next;
+
 	mutex_lock(&psp_devs_lock);
 	mutex_lock(&psd->lock);
 
 	psp_nl_notify_dev(psd, PSP_CMD_DEV_DEL_NTF);
 	xa_erase(&psp_devs, psd->id);
-	psd->ops = NULL;
-	psd->caps = NULL;
-	psd->drv_priv = NULL;
-
-	mutex_unlock(&psd->lock);
 	mutex_unlock(&psp_devs_lock);
+
+	list_for_each_entry_safe(pas, next, &psd->active_assocs, assocs_list)
+		psp_assoc_dev_del(psd, pas);
+
+	psd->ops = NULL;
+	psd->drv_priv = NULL;
+	mutex_unlock(&psd->lock);
 
 	psp_dev_put(psd);
 }

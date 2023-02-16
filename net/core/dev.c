@@ -3636,7 +3636,7 @@ validate_xmit_psp(struct sk_buff *skb, struct net_device *dev)
 
 	rcu_read_lock();
 	pas = psp_skb_get_assoc_rcu(skb);
-	good = !pas;
+	good = !pas || pas->psd->main_netdev == dev;
 	rcu_read_unlock();
 	if (!good) {
 		kfree_skb(skb);
