@@ -27,6 +27,7 @@ struct psp_dev_config {
  * @refcnt:	reference count for the instance
  * @id:		instance id
  * @config:	current device configuration
+ * @active_assocs:	list of registered associations
  */
 struct psp_dev {
 	struct net_device *main_netdev;
@@ -41,6 +42,8 @@ struct psp_dev {
 	u32 id;
 
 	struct psp_dev_config config;
+
+	struct list_head active_assocs;
 };
 
 /**
@@ -52,6 +55,12 @@ struct psp_dev_caps {
 	 * Set this field to 0 to indicate PSP is not supported at all.
 	 */
 	u32 versions;
+
+	/**
+	 * @assoc_drv_spc: size of driver-specific state in Tx assoc
+	 * Determines the size of struct psp_assoc::drv_spc
+	 */
+	u32 assoc_drv_spc;
 };
 
 #define PSP_MAX_KEY	32
@@ -59,7 +68,30 @@ struct psp_dev_caps {
 struct psp_skb_ext {
 	__be32 spi;
 	u16 generation;
+	u16 version; /* version is just u8 but we don't want holes */
+};
+
+struct psp_key_parsed {
+	__be32 spi;
+	u8 key[PSP_MAX_KEY];
+};
+
+struct psp_assoc {
+	struct psp_dev *psd;
+
+	struct psp_key_parsed tx;
+	struct psp_key_parsed rx;
+
+	u16 generation;
 	u8 version;
+	u8 rx_required;
+
+	refcount_t refcnt;
+	struct rcu_head rcu;
+	struct work_struct work;
+	struct list_head assocs_list;
+
+	u8 drv_data[] __aligned(8);
 };
 
 /**
@@ -78,6 +110,26 @@ struct psp_dev_ops {
 	 * @key_rotate: rotate the main key
 	 */
 	int (*key_rotate)(struct psp_dev *psd, struct netlink_ext_ack *extack);
+
+	/**
+	 * @rx_spi_alloc: allocate an Rx SPI+key pair
+	 * Allocate an Rx SPI and resulting derived key.
+	 * This key should remain valid until key rotation.
+	 */
+	int (*rx_spi_alloc)(struct psp_dev *psd, u32 version,
+			    struct psp_key_parsed *assoc,
+			    struct netlink_ext_ack *extack);
+
+	/**
+	 * @tx_key_add: add a Tx key to the device
+	 * Install an association in the device. Core will allocate space
+	 * for the driver to use at drv_data.
+	 * @tx_key_del: remove a Tx key from the device
+	 * Remove an association from the device.
+	 */
+	int (*tx_key_add)(struct psp_dev *psd, struct psp_assoc *pas,
+			  struct netlink_ext_ack *extack);
+	void (*tx_key_del)(struct psp_dev *psd, struct psp_assoc *pas);
 };
 
 #endif /* __NET_PSP_H */

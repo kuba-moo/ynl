@@ -386,6 +386,16 @@ static void gro_list_prepare_psp_ext(const struct sk_buff *skb,
 				     const struct sk_buff *p,
 				     unsigned long *diffs)
 {
+#if IS_ENABLED(CONFIG_INET_PSP)
+	struct psp_skb_ext *a, *b;
+
+	a = skb_ext_find(skb, SKB_EXT_PSP);
+	b = skb_ext_find(p, SKB_EXT_PSP);
+
+	*diffs |= (!!a) ^ (!!b);
+	if (!*diffs && unlikely(a))
+		*diffs |= memcmp(a, b, sizeof(*a));
+#endif
 }
 
 static void gro_list_prepare(const struct list_head *head,

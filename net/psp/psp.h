@@ -4,6 +4,7 @@
 #define __PSP_PSP_H
 
 #include <linux/list.h>
+#include <linux/lockdep.h>
 #include <linux/mutex.h>
 #include <net/netns/generic.h>
 #include <net/psp.h>
@@ -17,6 +18,15 @@ int psp_dev_check_access(struct psp_dev *psd, struct net *net);
 
 void psp_nl_notify_dev(struct psp_dev *psd, u32 cmd);
 
+struct psp_assoc *psp_assoc_create(struct psp_dev *psd);
+void psp_dev_tx_key_del(struct psp_dev *psd, struct psp_assoc *pas);
+int psp_sock_assoc_set_rx(unsigned int fd, struct psp_assoc *pas,
+			  struct psp_key_parsed *key,
+			  struct netlink_ext_ack *extack);
+int psp_sock_assoc_set_tx(unsigned int fd, struct psp_dev *psd,
+			  struct psp_key_parsed *key,
+			  struct netlink_ext_ack *extack);
+
 static inline void psp_dev_get(struct psp_dev *psd)
 {
 	refcount_inc(&psd->refcnt);
@@ -26,6 +36,12 @@ static inline void psp_dev_put(struct psp_dev *psd)
 {
 	if (refcount_dec_and_test(&psd->refcnt))
 		psp_dev_destroy(psd);
+}
+
+static inline bool psp_dev_is_registered(struct psp_dev *psd)
+{
+	lockdep_assert_held(&psd->lock);
+	return !!psd->ops;
 }
 
 #endif /* __PSP_PSP_H */
