@@ -55,6 +55,9 @@ config NET_EGRESS
 config NET_REDIRECT
 	bool
 
+config SKB_DECRYPTED
+	bool
+
 config SKB_EXTENSIONS
 	bool
 
