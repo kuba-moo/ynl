@@ -281,6 +281,70 @@ err_free_rsp:
 	return err;
 }
 
+/* Socket handling */
+
+static void psp_nl_sock_free(struct psp_nl_sock *psp_nl_sock)
+{
+	kfree(psp_nl_sock);
+}
+
+int psp_netlink_notify(struct notifier_block *nb, unsigned long state,
+		       void *_notify)
+{
+	struct netlink_notify *notify = _notify;
+	struct psp_nl_sock *psp_nl_sock;
+	struct psp_pernet *psp_net;
+
+	if (state != NETLINK_URELEASE || notify->protocol != NETLINK_GENERIC)
+		return NOTIFY_DONE;
+
+	psp_net = psp_get_pernet(notify->net);
+
+	psp_nl_sock = xa_erase(&psp_net->sockets, notify->portid);
+	if (psp_nl_sock)
+		psp_nl_sock_free(psp_nl_sock);
+
+	return NOTIFY_OK;
+}
+
+static struct psp_nl_sock *psp_nl_sock(struct sock *sk, struct genl_info *info)
+{
+	struct psp_pernet *psp_net = psp_get_pernet(genl_info_net(info));
+	struct psp_nl_sock *psp_nl_sock, *old;
+
+	if (!info->snd_portid)
+		return ERR_PTR(-EINVAL);
+
+	mutex_lock(&psp_net->sockets_lock);
+
+	psp_nl_sock = xa_load(&psp_net->sockets, info->snd_portid);
+	if (psp_nl_sock)
+		goto exit_unlock;
+
+	psp_nl_sock = kzalloc(sizeof(*psp_nl_sock), GFP_KERNEL);
+	if (!psp_nl_sock) {
+		psp_nl_sock = ERR_PTR(-ENOMEM);
+		goto exit_unlock;
+	}
+
+	old = xa_store(&psp_net->sockets, info->snd_portid, psp_nl_sock,
+		       GFP_KERNEL);
+	if (!old)
+		goto exit_unlock;
+	if (!xa_is_err(old)) {
+		WARN_ON_ONCE(1);
+		goto exit_unlock;
+	}
+
+	psp_nl_sock_free(psp_nl_sock);
+	psp_nl_sock = ERR_PTR(xa_err(old));
+
+exit_unlock:
+	mutex_unlock(&psp_net->sockets_lock);
+
+	return psp_nl_sock;
+}
+
 /* Key etc. */
 
 int psp_assoc_device_get_locked(const struct genl_split_ops *ops,
@@ -416,6 +480,7 @@ err_free_rsp:
 int psp_nl_tx_assoc_doit(struct sk_buff *skb, struct genl_info *info)
 {
 	struct psp_dev *psd = info->user_ptr[0];
+	struct psp_nl_sock *psp_nl;
 	struct psp_key_parsed key;
 	struct sk_buff *rsp;
 	unsigned int key_sz;
@@ -427,6 +492,10 @@ int psp_nl_tx_assoc_doit(struct sk_buff *skb, struct genl_info *info)
 	    GENL_REQ_ATTR_CHECK(info, PSP_A_ASSOC_TX_KEY) ||
 	    GENL_REQ_ATTR_CHECK(info, PSP_A_ASSOC_SOCK_FD))
 		return -EINVAL;
+
+	psp_nl = psp_nl_sock(skb->sk, info);
+	if (IS_ERR(psp_nl))
+		return PTR_ERR(psp_nl);
 
 	version = nla_get_u32(info->attrs[PSP_A_ASSOC_VERSION]);
 	key_sz = psp_nl_assoc_key_size(version);

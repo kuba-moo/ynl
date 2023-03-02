@@ -12,11 +12,23 @@
 
 extern struct xarray psp_devs;
 extern struct mutex psp_devs_lock;
+extern int psp_pernet_id;
+
+struct psp_pernet {
+	struct xarray sockets;
+	struct mutex sockets_lock;
+};
+
+struct psp_nl_sock {
+};
 
 void psp_dev_destroy(struct psp_dev *psd);
 int psp_dev_check_access(struct psp_dev *psd, struct net *net);
 
 void psp_nl_notify_dev(struct psp_dev *psd, u32 cmd);
+
+int psp_netlink_notify(struct notifier_block *nb, unsigned long state,
+		       void *_notify);
 
 struct psp_assoc *psp_assoc_create(struct psp_dev *psd);
 void psp_dev_tx_key_del(struct psp_dev *psd, struct psp_assoc *pas);
@@ -27,6 +39,11 @@ int psp_sock_assoc_set_tx(unsigned int fd, struct psp_dev *psd,
 			  struct psp_key_parsed *key,
 			  struct netlink_ext_ack *extack);
 void psp_assocs_key_rotated(struct psp_dev *psd);
+
+static inline struct psp_pernet *psp_get_pernet(const struct net *net)
+{
+	return net_generic(net, psp_pernet_id);
+}
 
 static inline void psp_dev_get(struct psp_dev *psd)
 {
