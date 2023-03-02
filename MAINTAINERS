@@ -22870,6 +22870,7 @@ F:	drivers/pci/*xen*
 
 XEN PVSCSI DRIVERS
 M:	Juergen Gross <jgross@suse.com>
+
 L:	xen-devel@lists.xenproject.org (moderated for non-subscribers)
 L:	linux-scsi@vger.kernel.org
 S:	Supported
