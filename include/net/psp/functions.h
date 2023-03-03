@@ -43,6 +43,16 @@ psp_enqueue_set_decrypted(struct sock *sk, struct sk_buff *skb)
 		skb->decrypted = 1;
 }
 
+/* TODO: this is never called, should it write gen? */
+static inline void psp_set_rx_crypt_seen(struct sock *sk, struct sk_buff *skb)
+{
+	struct psp_assoc *pas;
+
+	pas = rcu_dereference(sk->psp_assoc);
+	if (unlikely(pas && !READ_ONCE(pas->rx_required)))
+		WRITE_ONCE(pas->rx_required, 1);
+}
+
 static inline enum skb_drop_reason
 psp_sk_rx_policy_check(struct sock *sk, struct sk_buff *skb)
 {
@@ -83,6 +93,8 @@ static inline struct psp_assoc *psp_sk_assoc(struct sock *sk)
 
 static inline void
 psp_enqueue_set_decrypted(struct sock *sk, struct sk_buff *skb) { }
+static inline void
+psp_set_rx_crypt_seen(struct sock *sk, struct sk_buff *skb) { }
 
 static inline enum skb_drop_reason
 psp_sk_rx_policy_check(struct sock *sk, struct sk_buff *skb)
