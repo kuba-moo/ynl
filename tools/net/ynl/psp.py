@@ -3,8 +3,10 @@
 
 import argparse
 import json
+import fcntl
 import pprint
 import time
+import termios
 import struct
 import socket
 
@@ -105,6 +107,36 @@ def test3(ynl):
     print("Sent", (i + 1) * 2000)
 
 
+def test4(ynl):
+    devices = ynl.dev_get({}, dump=True)
+    dev = devices[1]
+
+    s = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
+    s.connect(("db01::1:2", 1234))
+
+    rx_assoc = ynl.rx_assoc({"version": 0, "dev-id": dev['id'], "sock-fd": s.fileno()})
+    rx = rx_assoc['rx-key']
+    print('Local SPI:', rx['spi'], 'key:', rx['key'])
+
+    tx = spi_xchg(s, rx)
+    print('Remote SPI:', tx['spi'], 'key:', tx['key'])
+
+    assoc = ynl.tx_assoc({"dev-id": dev['id'],
+                          "version": 0,
+                          "tx-key": tx,
+                          "sock-fd": s.fileno()})
+
+    print("Queued", s.send(b'0123456789' * 200))
+    one = b'\0' * 4
+    for i in range(5):
+        data = fcntl.ioctl(s.fileno(), termios.TIOCOUTQ, one)
+        outq = struct.unpack("I", data)[0]
+        if outq != 2000:
+            raise Exception(f"Data got out: {outq}")
+        time.sleep(0.1)
+    s.close()
+
+
 def main():
     parser = argparse.ArgumentParser(description='YNL sample')
     parser.add_argument('--spec', dest='spec', type=str, default='psp.yaml')
@@ -133,6 +165,8 @@ def main():
         test2(ynl)
     elif args.test == 3:
         test3(ynl)
+    elif args.test == 4:
+        test4(ynl)
 
     if args.ntf:
         ynl.ntf_subscribe(args.ntf)
