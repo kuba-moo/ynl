@@ -31,6 +31,9 @@ struct psp_dev_config {
  * @active_assocs:	list of registered associations
  * @prev_assocs:	associations which use old (but still usable) main key
  * @stale_assocs:	associations which use a rotated out key
+ *
+ * @stats.rotations:	See stats attr key-rotations
+ * @stats.stales:	See stats attr stale-events
  */
 struct psp_dev {
 	struct net_device *main_netdev;
@@ -51,6 +54,11 @@ struct psp_dev {
 	struct list_head active_assocs;
 	struct list_head prev_assocs;
 	struct list_head stale_assocs;
+
+	struct {
+		unsigned long rotations;
+		unsigned long stales;
+	} stats;
 };
 
 #define PSP_GEN_VALID_MASK	0x7f
