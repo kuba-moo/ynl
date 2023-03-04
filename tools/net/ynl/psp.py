@@ -137,6 +137,62 @@ def test4(ynl):
     s.close()
 
 
+def test5(ynl):
+    devices = ynl.dev_get({}, dump=True)
+    dev = devices[0]
+
+    prev_stale = ynl.get_stats({'dev-id': dev['id']})['stale-events']
+
+    s = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
+    s.connect(("db01::1:2", 1234))
+
+    rx_assoc = ynl.rx_assoc({"version": 0, "dev-id": dev['id'], "sock-fd": s.fileno()})
+    rx = rx_assoc['rx-key']
+    print('Local SPI:', rx['spi'], 'key:', rx['key'])
+
+    tx = spi_xchg(s, rx)
+    print('Remote SPI:', tx['spi'], 'key:', tx['key'])
+
+    assoc = ynl.tx_assoc({"dev-id": dev['id'],
+                          "version": 0,
+                          "tx-key": tx,
+                          "sock-fd": s.fileno()})
+
+    for i in range(100):
+        print(i, s.send(b'0123456789' * 200), end='\r')
+    print("Sent", (i + 1) * 2000)
+
+    # Wait to flush
+    one = b'\0' * 4
+    for i in range(50):
+        data = fcntl.ioctl(s.fileno(), termios.TIOCOUTQ, one)
+        outq = struct.unpack("I", data)[0]
+        if outq == 0:
+            break
+        time.sleep(0.01)
+
+    print("# Rotate (x2):")
+    rot = ynl.key_rotate({"id": dev['id']})
+    pprint.PrettyPrinter().pprint(rot)
+    rot = ynl.key_rotate({"id": dev['id']})
+    pprint.PrettyPrinter().pprint(rot)
+
+    cur_stale = ynl.get_stats({'dev-id': dev['id']})['stale-events']
+    if cur_stale == prev_stale:
+        raise Exception(f"Stale socket stat did not change: {prev_stale}")
+
+    print("Queued", s.send(b'0123456789' * 200))
+    one = b'\0' * 4
+    for i in range(5):
+        data = fcntl.ioctl(s.fileno(), termios.TIOCOUTQ, one)
+        outq = struct.unpack("I", data)[0]
+        if outq != 2000:
+            raise Exception(f"Data got out: {outq}")
+        time.sleep(0.1)
+
+    s.close()
+
+
 def main():
     parser = argparse.ArgumentParser(description='YNL sample')
     parser.add_argument('--spec', dest='spec', type=str, default='psp.yaml')
@@ -167,6 +223,8 @@ def main():
         test3(ynl)
     elif args.test == 4:
         test4(ynl)
+    elif args.test == 5:
+        test5(ynl)
 
     if args.ntf:
         ynl.ntf_subscribe(args.ntf)
