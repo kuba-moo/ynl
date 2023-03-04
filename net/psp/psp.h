@@ -26,6 +26,7 @@ int psp_sock_assoc_set_rx(unsigned int fd, struct psp_assoc *pas,
 int psp_sock_assoc_set_tx(unsigned int fd, struct psp_dev *psd,
 			  struct psp_key_parsed *key,
 			  struct netlink_ext_ack *extack);
+void psp_assocs_key_rotated(struct psp_dev *psd);
 
 static inline void psp_dev_get(struct psp_dev *psd)
 {
