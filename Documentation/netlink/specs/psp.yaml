@@ -99,6 +99,18 @@ attribute-sets:
           Number of times a socket's Rx got shut down due to using
           a key which went stale (fully rotated out).
         type: u64
+      -
+        name: rx-packets
+        doc: Number of successfully processed and authenticated PSP packets.
+        type: u64
+      -
+        name: rx-bytes
+        doc: |
+          Number of successfully authenticated PSP bytes received, counting from
+          the first byte after the IV through the last byte of payload. The fixed initial portion of the
+          PSP header (16 bytes) and the PSP trailer/ICV (16 bytes) are not included in this count.
+        type: u64
+      # TODO: ...fill in all the stats from the spec.
 
 operations:
   list:

@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 
+#include <linux/ethtool.h>
 #include <linux/skbuff.h>
 #include <linux/xarray.h>
 #include <net/genetlink.h>
@@ -458,8 +459,18 @@ static int
 psp_nl_stats_fill(struct psp_dev *psd, struct sk_buff *rsp,
 		  u32 portid, u32 seq, int flags)
 {
+	const unsigned int required_cnt = offsetof(struct psp_dev_stats,
+						   required_end) / sizeof(u64);
+	struct psp_dev_stats stats;
+	int i, err;
 	void *hdr;
-	int err;
+
+	memset(&stats, 0xff, sizeof(stats));
+	psd->ops->get_stats(psd, &stats);
+
+	for (i = 0; i < required_cnt; i++)
+		if (WARN_ON_ONCE(stats.required[i] == ETHTOOL_STAT_NOT_SET))
+			return -EOPNOTSUPP;
 
 	hdr = genlmsg_put(rsp, portid, seq, &psp_nl_family, flags,
 			  PSP_CMD_GET_STATS);
@@ -470,7 +481,11 @@ psp_nl_stats_fill(struct psp_dev *psd, struct sk_buff *rsp,
 	    nla_put_u64_64bit(rsp, PSP_A_STATS_KEY_ROTATIONS,
 			      psd->stats.rotations, PSP_A_STATS_PAD) ||
 	    nla_put_u64_64bit(rsp, PSP_A_STATS_STALE_EVENTS,
-			      psd->stats.stales, PSP_A_STATS_PAD))
+			      psd->stats.stales, PSP_A_STATS_PAD) ||
+	    nla_put_u64_64bit(rsp, PSP_A_STATS_RX_PACKETS,
+			      stats.rx_packets, PSP_A_STATS_PAD) ||
+	    nla_put_u64_64bit(rsp, PSP_A_STATS_RX_BYTES,
+			      stats.rx_bytes, PSP_A_STATS_PAD))
 		goto err_cancel_msg;
 
 	genlmsg_end(rsp, hdr);

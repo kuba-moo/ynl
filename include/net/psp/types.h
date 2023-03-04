@@ -111,6 +111,19 @@ struct psp_assoc {
 	u8 drv_data[] __aligned(8);
 };
 
+struct psp_dev_stats {
+	union {
+		struct {
+			u64 rx_packets;
+			u64 rx_bytes;
+		};
+		DECLARE_FLEX_ARRAY(u64, required);
+	};
+	char required_end[0];
+
+	/* optional stats would go here */
+};
+
 /**
  * struct psp_dev_ops - netdev driver facing PSP callbacks
  */
@@ -147,6 +160,13 @@ struct psp_dev_ops {
 	int (*tx_key_add)(struct psp_dev *psd, struct psp_assoc *pas,
 			  struct netlink_ext_ack *extack);
 	void (*tx_key_del)(struct psp_dev *psd, struct psp_assoc *pas);
+
+	/**
+	 * @get_stats: get statistics from the device
+	 * Stats required by the spec must be maintained and filled in.
+	 * Stats must be filled in member-by-member, never memset the struct.
+	 */
+	void (*get_stats)(struct psp_dev *psd, struct psp_dev_stats *stats);
 };
 
 #endif /* __NET_PSP_H */
