@@ -1132,6 +1132,7 @@ static struct sk_buff *bnxt_rx_agg_pages_skb(struct bnxt *bp,
 	total_frag_len = __bnxt_rx_agg_pages(bp, cpr, shinfo, idx,
 					     agg_bufs, tpa, NULL);
 	if (!total_frag_len) {
+		skb_mark_for_recycle(skb);
 		dev_kfree_skb(skb);
 		return NULL;
 	}
@@ -1535,6 +1536,7 @@ static struct sk_buff *bnxt_gro_func_5730x(struct bnxt_tpa_info *tpa_info,
 		th = tcp_hdr(skb);
 		th->check = ~tcp_v6_check(len, &iph->saddr, &iph->daddr, 0);
 	} else {
+		skb_mark_for_recycle(skb);
 		dev_kfree_skb_any(skb);
 		return NULL;
 	}
@@ -1715,6 +1717,7 @@ static inline struct sk_buff *bnxt_tpa_end(struct bnxt *bp,
 		if (eth_type_vlan(vlan_proto)) {
 			__vlan_hwaccel_put_tag(skb, vlan_proto, vtag);
 		} else {
+			skb_mark_for_recycle(skb);
 			dev_kfree_skb(skb);
 			return NULL;
 		}
@@ -1987,6 +1990,7 @@ static int bnxt_rx_pkt(struct bnxt *bp, struct bnxt_cp_ring_info *cpr,
 		if (eth_type_vlan(vlan_proto)) {
 			__vlan_hwaccel_put_tag(skb, vlan_proto, vtag);
 		} else {
+			skb_mark_for_recycle(skb);
 			dev_kfree_skb(skb);
 			goto next_rx;
 		}
