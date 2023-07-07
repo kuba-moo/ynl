@@ -77,6 +77,7 @@ struct page_pool_params {
 	int		nid;  /* Numa node id to allocate from pages from */
 	struct device	*dev; /* device, for DMA pre-mapping purposes */
 	struct napi_struct *napi; /* Sole consumer of pages, otherwise NULL */
+	u8		memory_provider; /* haaacks! should be user-facing */
 	enum dma_data_direction dma_dir; /* DMA mapping direction */
 	unsigned int	max_len; /* max DMA sync memory size */
 	unsigned int	offset;  /* DMA addr offset */
@@ -147,6 +148,22 @@ static inline u64 *page_pool_ethtool_stats_get(u64 *data, void *stats)
 
 #endif
 
+struct mem_provider;
+
+enum pp_memory_provider_type {
+	__PP_MP_NONE, /* Use system allocator directly */
+	PP_MP_BASIC, /* Test purposes only, Hacky McHackface */
+};
+
+struct pp_memory_provider_ops {
+	int (*init)(struct page_pool *pool);
+	void (*destroy)(struct page_pool *pool);
+	struct page *(*alloc_pages)(struct page_pool *pool, gfp_t gfp);
+	bool (*release_page)(struct page_pool *pool, struct page *page);
+};
+
+extern const struct pp_memory_provider_ops basic_ops;
+
 struct page_pool {
 	struct page_pool_params p;
 
@@ -193,6 +210,9 @@ struct page_pool {
 	 * TODO: Implement bulk return pages into this structure.
 	 */
 	struct ptr_ring ring;
+
+	const struct pp_memory_provider_ops *mp_ops;
+	void *mp_priv;
 
 #ifdef CONFIG_PAGE_POOL_STATS
 	/* recycle stats are per-cpu to avoid locking */
