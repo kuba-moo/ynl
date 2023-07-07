@@ -2170,6 +2170,11 @@ struct bnxt {
 	struct dentry		*debugfs_pdev;
 	struct device		*hwmon_dev;
 	enum board_idx		board_idx;
+
+	struct {
+		struct mem_provider *mp;
+		struct dma_cocoa *dco;
+	} mp;
 };
 
 #define BNXT_NUM_RX_RING_STATS			8

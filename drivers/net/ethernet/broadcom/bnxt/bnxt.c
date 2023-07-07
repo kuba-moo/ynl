@@ -58,6 +58,8 @@
 #include <linux/align.h>
 #include <net/netdev_queues.h>
 
+#include <net/dcalloc.h>
+
 #include "bnxt_hsi.h"
 #include "bnxt.h"
 #include "bnxt_hwrm.h"
@@ -75,6 +77,9 @@
 #define BNXT_TX_TIMEOUT		(5 * HZ)
 #define BNXT_DEF_MSG_ENABLE	(NETIF_MSG_DRV | NETIF_MSG_HW | \
 				 NETIF_MSG_TX_ERR)
+
+static int pp_mode;
+module_param(pp_mode, int, 0644);
 
 MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION("Broadcom BCM573xx network driver");
@@ -2834,13 +2839,14 @@ poll_done:
 static void *bnxt_alloc_coherent(struct bnxt *bp, unsigned long size,
 				 dma_addr_t *dma, gfp_t gfp)
 {
-	return dma_alloc_coherent(&bp->pdev->dev, size, dma, gfp);
+	ASSERT_RTNL();
+	return dma_cocoa_alloc(bp->mp.dco, size, dma, gfp);
 }
 
 static void bnxt_free_coherent(struct bnxt *bp, unsigned long size,
 			       void *addr, dma_addr_t dma)
 {
-	return dma_free_coherent(&bp->pdev->dev, size, addr, dma);
+	dma_cocoa_free(bp->mp.dco, size, addr, dma);
 }
 
 static void bnxt_free_tx_skbs(struct bnxt *bp)
@@ -3220,6 +3226,8 @@ static int bnxt_alloc_rx_page_pool(struct bnxt *bp,
 	pp.napi = &rxr->bnapi->napi;
 	pp.dev = &bp->pdev->dev;
 	pp.dma_dir = DMA_BIDIRECTIONAL;
+	pp.memory_provider = pp_mode;
+	pp.init_arg = bp->mp.mp;
 
 	rxr->page_pool = page_pool_create(&pp);
 	if (IS_ERR(rxr->page_pool)) {
@@ -13607,6 +13615,14 @@ static int bnxt_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 	if (rc < 0)
 		goto init_err_free;
 
+	bp->mp.mp = mep_create(&pdev->dev);
+	if (!bp->mp.mp)
+		goto init_err_pci_clean;
+
+	bp->mp.dco = dma_cocoa_create(&bp->pdev->dev, GFP_KERNEL);
+	if (!bp->mp.dco)
+		goto init_err_mep_destroy;
+
 	dev->netdev_ops = &bnxt_netdev_ops;
 	dev->watchdog_timeo = BNXT_TX_TIMEOUT;
 	dev->ethtool_ops = &bnxt_ethtool_ops;
@@ -13614,7 +13630,7 @@ static int bnxt_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 
 	rc = bnxt_alloc_hwrm_resources(bp);
 	if (rc)
-		goto init_err_pci_clean;
+		goto init_err_dco_destroy;
 
 	mutex_init(&bp->hwrm_cmd_lock);
 	mutex_init(&bp->link_lock);
@@ -13788,6 +13804,11 @@ init_err_dl:
 	bnxt_shutdown_tc(bp);
 	bnxt_clear_int_mode(bp);
 
+init_err_dco_destroy:
+	dma_cocoa_destroy(bp->mp.dco);
+init_err_mep_destroy:
+	mep_destroy(bp->mp.mp);
+
 init_err_pci_clean:
 	bnxt_hwrm_func_drv_unrgtr(bp);
 	bnxt_free_hwrm_resources(bp);
@@ -13826,6 +13847,8 @@ static void bnxt_shutdown(struct pci_dev *pdev)
 		dev_close(dev);
 
 	bnxt_clear_int_mode(bp);
+	dma_cocoa_destroy(bp->mp.dco);
+	mep_destroy(bp->mp.mp);
 	pci_disable_device(pdev);
 
 	if (system_state == SYSTEM_POWER_OFF) {
