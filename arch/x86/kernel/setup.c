@@ -843,6 +843,8 @@ static void __init x86_report_nx(void)
 	}
 }
 
+int __init mep_cma_init(void);
+
 /*
  * Determine if we were loaded by an EFI loader.  If so, then we have also been
  * passed the efi memmap, systab, etc., so we should use these data structures
@@ -1223,8 +1225,10 @@ void __init setup_arch(char **cmdline_p)
 	initmem_init();
 	dma_contiguous_reserve(max_pfn_mapped << PAGE_SHIFT);
 
-	if (boot_cpu_has(X86_FEATURE_GBPAGES))
+	if (boot_cpu_has(X86_FEATURE_GBPAGES)) {
 		hugetlb_cma_reserve(PUD_SHIFT - PAGE_SHIFT);
+		mep_cma_init();
+	}
 
 	/*
 	 * Reserve memory for crash kernel after SRAT is parsed so that it

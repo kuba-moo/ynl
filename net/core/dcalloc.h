@@ -90,4 +90,7 @@ static inline void dma_slow_put(struct dma_slow_allocator *sal)
 		sal->ops->release(sal);
 }
 
+/* misc */
+void mp_huge_split(struct page *page, unsigned int order);
+
 #endif

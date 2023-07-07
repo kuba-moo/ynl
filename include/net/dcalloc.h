@@ -15,4 +15,14 @@ void *dma_cocoa_alloc(struct dma_cocoa *cocoa, unsigned long size,
 void dma_cocoa_free(struct dma_cocoa *cocoa, unsigned long size, void *addr,
 		    dma_addr_t dma);
 
+struct mem_provider;
+
+struct mem_provider *mep_create(struct device *dev);
+void mep_destroy(struct mem_provider *mep);
+
+struct page *mep_alloc(struct mem_provider *mep, unsigned int order,
+		       dma_addr_t *dma, gfp_t gfp);
+void mep_free(struct mem_provider *mep, struct page *page,
+	      unsigned int order, dma_addr_t dma);
+
 #endif

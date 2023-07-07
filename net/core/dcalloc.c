@@ -388,3 +388,228 @@ void dma_cocoa_free(struct dma_cocoa *cocoa, unsigned long size, void *addr,
 	size = roundup_pow_of_two(size);
 	return dma_sal_free(&cocoa->sal, addr, size, dma);
 }
+
+/*****************************
+ ***   DMA MEP allocator   ***
+ *****************************/
+
+#include <linux/cma.h>
+
+static struct cma *mep_cma;
+static int mep_err;
+
+int __init mep_cma_init(void);
+int __init mep_cma_init(void)
+{
+	int order_per_bit;
+
+	order_per_bit = min(30 - PAGE_SHIFT, MAX_ORDER - 1);
+	order_per_bit = min(order_per_bit, HUGETLB_PAGE_ORDER);
+
+	mep_err = cma_declare_contiguous_nid(0,		/* base */
+					     SZ_4G,	/* size */
+					     0,		/* limit */
+					     SZ_1G,	/* alignment */
+					     order_per_bit,  /* order_per_bit */
+					     false,	/* fixed */
+					     "net_mep",	/* name */
+					     &mep_cma,	/* res_cma */
+					     NUMA_NO_NODE);  /* nid */
+	if (mep_err)
+		pr_warn("Net MEP init failed: %d\n", mep_err);
+	else
+		pr_info("Net MEP reserved 4G of memory\n");
+
+	return 0;
+}
+
+/** ----- MEP (slow / ctrl) allocator ----- */
+
+void mp_huge_split(struct page *page, unsigned int order)
+{
+	int i;
+
+	split_page(page, order);
+	/* The subsequent pages have a poisoned next, and since we only
+	 * OR in the PP_SIGNATURE this will mess up PP detection.
+	 */
+	for (i = 0; i < (1 << order); i++)
+		page[i].pp_magic &= 3UL;
+}
+
+struct mem_provider {
+	struct dma_slow_allocator sal;
+
+	struct work_struct work;
+};
+
+static int
+dma_mep_alloc_fall(struct dma_slow_allocator *sal, struct dma_slow_fall *fb,
+		   unsigned int size, gfp_t gfp)
+{
+	int order = get_order(size);
+
+	fb->addr = alloc_pages(gfp, order);
+	if (!fb->addr)
+		return -ENOMEM;
+
+	fb->dma = dma_map_page_attrs(sal->dev, fb->addr, 0, size,
+				     DMA_BIDIRECTIONAL, DMA_ATTR_SKIP_CPU_SYNC);
+	if (dma_mapping_error(sal->dev, fb->dma)) {
+		put_page(fb->addr);
+		return -ENOMEM;
+	}
+
+	mp_huge_split(fb->addr, order);
+	return 0;
+}
+
+static void
+dma_mep_free_fall(struct dma_slow_allocator *sal, struct dma_slow_fall *fb)
+{
+	int order = get_order(fb->size);
+	struct page *page;
+	int i;
+
+	page = fb->addr;
+	dma_unmap_page_attrs(sal->dev, fb->dma, fb->size,
+			     DMA_BIDIRECTIONAL, DMA_ATTR_SKIP_CPU_SYNC);
+	for (i = 0; i < (1 << order); i++)
+		put_page(page + i);
+}
+
+static void mep_release_work(struct work_struct *work)
+{
+	struct mem_provider *mep;
+
+	mep = container_of(work, struct mem_provider, work);
+
+	while (!list_empty(&mep->sal.huge)) {
+		struct dma_slow_buddy *bud;
+		struct dma_slow_huge *shu;
+
+		shu = list_first_entry(&mep->sal.huge, typeof(*shu), huge);
+
+		dma_unmap_page_attrs(mep->sal.dev, shu->dma, SZ_1G,
+				     DMA_BIDIRECTIONAL, DMA_ATTR_SKIP_CPU_SYNC);
+		cma_release(mep_cma, shu->addr, SZ_1G / PAGE_SIZE);
+
+		bud = list_first_entry_or_null(&shu->buddy_list,
+					       typeof(*bud), list);
+		if (WARN_ON(!bud || bud->size != SZ_1G))
+			continue;
+		kfree(bud);
+
+		list_del(&shu->huge);
+		kfree(shu);
+	}
+	put_device(mep->sal.dev);
+	kfree(mep);
+}
+
+static void dma_mep_release(struct dma_slow_allocator *sal)
+{
+	struct mem_provider *mep;
+
+	mep = container_of(sal, struct mem_provider, sal);
+
+	INIT_WORK(&mep->work, mep_release_work);
+	schedule_work(&mep->work);
+}
+
+struct dma_slow_allocator_ops dma_mep_ops = {
+	.ptr_shf	= PAGE_SHIFT - order_base_2(sizeof(struct page)),
+
+	.alloc_fall	= dma_mep_alloc_fall,
+	.free_fall	= dma_mep_free_fall,
+
+	.release	= dma_mep_release,
+};
+
+struct mem_provider *mep_create(struct device *dev)
+{
+	struct mem_provider *mep;
+	int i;
+
+	mep = kzalloc(sizeof(*mep), GFP_KERNEL);
+	if (!mep)
+		return NULL;
+
+	dma_sal_init(&mep->sal, &dma_mep_ops, dev);
+	get_device(mep->sal.dev);
+
+	if (mep_err)
+		goto done;
+
+	/* Hardcoded for now */
+	for (i = 0; i < 2; i++) {
+		const unsigned int order = 30 - PAGE_SHIFT; /* 1G */
+		struct dma_slow_huge *shu;
+		struct page *page;
+
+		shu = kzalloc(sizeof(*shu), GFP_KERNEL);
+		if (!shu)
+			break;
+
+		page = cma_alloc(mep_cma, SZ_1G / PAGE_SIZE, order, false);
+		if (!page) {
+			pr_err("mep: CMA alloc failed\n");
+			goto err_free_shu;
+		}
+
+		shu->dma = dma_map_page_attrs(mep->sal.dev, page, 0,
+					      PAGE_SIZE << order,
+					      DMA_BIDIRECTIONAL,
+					      DMA_ATTR_SKIP_CPU_SYNC);
+		if (dma_mapping_error(mep->sal.dev, shu->dma)) {
+			pr_err("mep: DMA map failed\n");
+			goto err_free_page;
+		}
+
+		if (dma_slow_huge_init(shu, page, SZ_1G, shu->dma,
+				       GFP_KERNEL)) {
+			pr_err("mep: shu init failed\n");
+			goto err_unmap;
+		}
+
+		mp_huge_split(page, 30 - PAGE_SHIFT);
+
+		list_add(&shu->huge, &mep->sal.huge);
+		continue;
+
+err_unmap:
+		dma_unmap_page_attrs(mep->sal.dev, shu->dma, SZ_1G,
+				     DMA_BIDIRECTIONAL, DMA_ATTR_SKIP_CPU_SYNC);
+err_free_page:
+		put_page(page);
+err_free_shu:
+		kfree(shu);
+		break;
+	}
+done:
+	if (list_empty(&mep->sal.huge))
+		pr_warn("mep: no huge pages acquired\n");
+
+	return mep;
+}
+EXPORT_SYMBOL_GPL(mep_create);
+
+void mep_destroy(struct mem_provider *mep)
+{
+	dma_slow_put(&mep->sal);
+}
+EXPORT_SYMBOL_GPL(mep_destroy);
+
+struct page *mep_alloc(struct mem_provider *mep, unsigned int order,
+		       dma_addr_t *dma, gfp_t gfp)
+{
+	return dma_sal_alloc(&mep->sal, PAGE_SIZE << order, dma, gfp);
+}
+EXPORT_SYMBOL_GPL(mep_alloc);
+
+void mep_free(struct mem_provider *mep, struct page *page,
+	      unsigned int order, dma_addr_t dma)
+{
+	dma_sal_free(&mep->sal, page, PAGE_SIZE << order, dma);
+}
+EXPORT_SYMBOL_GPL(mep_free);
