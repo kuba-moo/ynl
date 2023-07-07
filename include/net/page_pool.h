@@ -153,6 +153,9 @@ struct mem_provider;
 enum pp_memory_provider_type {
 	__PP_MP_NONE, /* Use system allocator directly */
 	PP_MP_BASIC, /* Test purposes only, Hacky McHackface */
+	PP_MP_HUGE_SPLIT, /* 2MB, online page alloc */
+	PP_MP_HUGE, /* 2MB, all memory pre-allocated */
+	PP_MP_HUGE_1G, /* 1G pages, MEP, pre-allocated */
 };
 
 struct pp_memory_provider_ops {
@@ -163,6 +166,9 @@ struct pp_memory_provider_ops {
 };
 
 extern const struct pp_memory_provider_ops basic_ops;
+extern const struct pp_memory_provider_ops hugesp_ops;
+extern const struct pp_memory_provider_ops huge_ops;
+extern const struct pp_memory_provider_ops huge_1g_ops;
 
 struct page_pool {
 	struct page_pool_params p;
