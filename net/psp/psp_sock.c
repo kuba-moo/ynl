@@ -170,6 +170,7 @@ int psp_sock_assoc_set_tx(struct sock *sk, struct psp_dev *psd,
 			  u32 version, struct psp_key_parsed *key,
 			  struct netlink_ext_ack *extack)
 {
+	struct inet_connection_sock *icsk;
 	struct psp_assoc *pas, *dummy;
 	int err;
 
@@ -219,6 +220,10 @@ int psp_sock_assoc_set_tx(struct sock *sk, struct psp_dev *psd,
 	memcpy(&pas->tx, key, sizeof(*key));
 
 	WRITE_ONCE(sk->sk_validate_xmit_skb, psp_validate_xmit);
+
+	icsk = inet_csk(sk);
+	icsk->icsk_ext_hdr_len += psp_sk_overhead(sk);
+	icsk->icsk_sync_mss(sk, icsk->icsk_pmtu_cookie);
 
 exit_free_dummy:
 	kfree(dummy);
