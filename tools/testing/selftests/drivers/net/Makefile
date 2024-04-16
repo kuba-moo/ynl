@@ -9,6 +9,7 @@ TEST_PROGS := \
 	netcons_basic.sh \
 	netcons_overflow.sh \
 	ping.py \
+	psp.py \
 	queues.py \
 	stats.py \
 	shaper.py \

@@ -188,7 +188,7 @@ def ksft_setup(env):
     return env
 
 
-def ksft_run(cases=None, globs=None, case_pfx=None, args=()):
+def ksft_run(cases=None, globs=None, case_pfx=None, args=(), skip_all=None):
     cases = cases or []
 
     if globs and case_pfx:
@@ -215,6 +215,8 @@ def ksft_run(cases=None, globs=None, case_pfx=None, args=()):
         cnt_key = ""
 
         try:
+            if skip_all:
+                raise KsftSkipEx()
             case(*args)
         except KsftSkipEx as e:
             comment = "SKIP " + str(e)
