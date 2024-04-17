@@ -8,7 +8,7 @@ import termios
 import time
 
 from lib.py import ksft_run, ksft_exit, ksft_pr
-from lib.py import ksft_true, ksft_eq, ksft_ne, ksft_gt, ksft_raises, KsftSkipEx
+from lib.py import ksft_true, ksft_eq, ksft_ne, ksft_gt, ksft_raises, ksft_not_none, KsftSkipEx
 from lib.py import NetDrvEpEnv, PSPFamily, NlError
 from lib.py import bkg, cmd, rand_port, wait_port_listen
 
@@ -559,6 +559,61 @@ def data_send_off(cfg):
             udps.close()
 
 
+def __nsim_psp_rereg(cfg):
+    # The PSP dev ID will change, remember what was there before
+    before = set([x['id'] for x in cfg.pspnl.dev_get({}, dump=True)])
+
+    cfg._ns.nsims[0].dfs_write('psp_rereg', '1')
+
+    after = set([x['id'] for x in cfg.pspnl.dev_get({}, dump=True)])
+
+    new_devs = list(after - before)
+    ksft_eq(len(new_devs), 1)
+    cfg.psp_dev_id = list(after - before)[0]
+
+
+def removal_device_rx(cfg):
+    """ Test removing a netdev / PSD with active Rx assoc """
+
+    # We could technically devlink reload real devices, too
+    # but that kills the control socket. So test this on
+    # netdevsim only for now
+    cfg.require_nsim()
+
+    s = _make_clr_conn(cfg)
+    try:
+        rx_assoc = cfg.pspnl.rx_assoc({"version": 0,
+                                       "dev-id": cfg.psp_dev_id,
+                                       "sock-fd": s.fileno()})
+        ksft_not_none(rx_assoc)
+
+        __nsim_psp_rereg(cfg)
+    finally:
+        _close_conn(cfg, s)
+
+
+def removal_device_bi(cfg):
+    """ Test removing a netdev / PSD with active Rx/Tx assoc """
+
+    # We could technically devlink reload real devices, too
+    # but that kills the control socket. So test this on
+    # netdevsim only for now
+    cfg.require_nsim()
+
+    s = _make_clr_conn(cfg)
+    try:
+        rx_assoc = cfg.pspnl.rx_assoc({"version": 0,
+                                       "dev-id": cfg.psp_dev_id,
+                                       "sock-fd": s.fileno()})
+        cfg.pspnl.tx_assoc({"dev-id": cfg.psp_dev_id,
+                            "version": 0,
+                            "tx-key": rx_assoc['rx-key'],
+                            "sock-fd": s.fileno()})
+        __nsim_psp_rereg(cfg)
+    finally:
+        _close_conn(cfg, s)
+
+
 def main() -> None:
     with NetDrvEpEnv(__file__) as cfg:
         cfg.pspnl = PSPFamily()
@@ -589,7 +644,7 @@ def main() -> None:
                 cfg.comm_sock = socket.create_connection((cfg.remote_addr,
                                                           cfg.comm_port), timeout=1)
 
-                ksft_run(globs=globals(), case_pfx={"dev_", "data_", "assoc_"},
+                ksft_run(globs=globals(), case_pfx={"dev_", "data_", "assoc_", "removal_"},
                          args=(cfg, ), skip_all=(cfg.psp_dev_id is None))
                 cfg.comm_sock.send(b"exit\0")
                 cfg.comm_sock.close()
