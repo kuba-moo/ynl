@@ -13,6 +13,10 @@ from lib.py import NetDrvEpEnv, PSPFamily, NlError
 from lib.py import bkg, cmd, rand_port, wait_port_listen
 
 
+class PSPExceptShortIO(Exception):
+    pass
+
+
 def _get_outq(s):
     one = b'\0' * 4
     outq = fcntl.ioctl(s.fileno(), termios.TIOCOUTQ, one)
@@ -85,6 +89,18 @@ def _send_careful(cfg, s, rounds):
     return len(data) * rounds
 
 
+def _recv_careful(cfg, s, target, rounds=100):
+    data = b''
+    for i in range(rounds):
+        try:
+            data += s.recv(target - len(data), socket.MSG_DONTWAIT)
+            if len(data) == target:
+                return data
+        except BlockingIOError:
+            time.sleep(0.001)
+    raise PSPExceptShortIO(target, len(data), data)
+
+
 def _check_data_rx(cfg, exp_len):
     read_len = -1
     for i in range(30):
@@ -94,6 +110,31 @@ def _check_data_rx(cfg, exp_len):
             break
         time.sleep(0.01)
     ksft_eq(read_len, exp_len)
+
+
+def _check_data_outq(s, exp_len, force_wait=False):
+    outq = 0
+    for i in range(10):
+        outq = _get_outq(s)
+        if not force_wait and outq == exp_len:
+            break
+        time.sleep(0.01)
+    ksft_eq(outq, exp_len)
+
+
+def _get_stat(cfg, key):
+    return cfg.pspnl.get_stats({'dev-id': cfg.psp_dev_id})[key]
+
+
+def _req_echo(cfg, s, expect_fail=False):
+    _send_with_ack(cfg, b'data echo\0')
+    try:
+        _recv_careful(cfg, s, 5)
+        if expect_fail:
+            raise Exception("Received unexpected echo reply")
+    except PSPExceptShortIO:
+            if not expect_fail:
+                raise
 
 #
 # Test cases
@@ -332,6 +373,151 @@ def data_basic_send_v2(cfg):
 
 def data_basic_send_v3(cfg):
     data_basic_send(cfg, version=3)
+
+
+def __bad_xfer_do(cfg, s, tx, version='hdr0-aes-gcm-128'):
+    # Make sure we accept the ACK for the SPI before we seal with the bad assoc
+    _check_data_outq(s, 0)
+
+    cfg.pspnl.tx_assoc({"dev-id": cfg.psp_dev_id,
+                        "version": version,
+                        "tx-key": tx,
+                        "sock-fd": s.fileno()})
+
+    data_len = _send_careful(cfg, s, 20)
+    _check_data_outq(s, data_len, force_wait=True)
+    _check_data_rx(cfg, 0)
+    _close_psp_conn(cfg, s)
+
+
+def data_bad_version_send(cfg):
+    """
+    Test data transfer where we expect different version than is being used by peer
+    """
+
+    version = 'hdr0-aes-gmac-128'
+    versions = list(cfg.psp_supported_versions & {'hdr0-aes-gcm-128', 'hdr0-aes-gmac-128'})
+    if len(versions) < 2:
+        raise KsftSkipEx("Not enough PSP versions supported by the device for the test")
+
+    # Peer will use version 0 but we expect something higher
+    s = _make_psp_conn(cfg)
+
+    rx_assoc = cfg.pspnl.rx_assoc({"version": version,
+                                   "dev-id": cfg.psp_dev_id,
+                                   "sock-fd": s.fileno()})
+    rx = rx_assoc['rx-key']
+    tx = _spi_xchg(s, rx)
+
+    __bad_xfer_do(cfg, s, tx, version=version)
+
+
+def data_send_bad_key(cfg):
+    """ Test send data with bad key """
+    s = _make_psp_conn(cfg)
+
+    rx_assoc = cfg.pspnl.rx_assoc({"version": 0,
+                                   "dev-id": cfg.psp_dev_id,
+                                   "sock-fd": s.fileno()})
+    rx = rx_assoc['rx-key']
+    tx = _spi_xchg(s, rx)
+    tx['key'] = (tx['key'][0] ^ 0xff).to_bytes(1, 'little') + tx['key'][1:]
+    __bad_xfer_do(cfg, s, tx)
+
+
+def data_send_disconnect(cfg):
+    with _make_psp_conn(cfg) as s:
+        assoc = cfg.pspnl.rx_assoc({"version": 0,
+                                  "sock-fd": s.fileno()})
+        tx = _spi_xchg(s, assoc['rx-key'])
+        cfg.pspnl.tx_assoc({"version": 0,
+                          "tx-key": tx,
+                          "sock-fd": s.fileno()})
+
+        data_len = _send_careful(cfg, s, 100)
+        _check_data_rx(cfg, data_len)
+
+        s.shutdown(socket.SHUT_RDWR)
+        s.close()
+
+
+def data_stale_key(cfg):
+    """ Test send on a double-rotated key """
+
+    prev_stale = _get_stat(cfg, 'stale-events')
+
+    s = _make_psp_conn(cfg)
+    try:
+        rx_assoc = cfg.pspnl.rx_assoc({"version": 0,
+                                     "dev-id": cfg.psp_dev_id,
+                                     "sock-fd": s.fileno()})
+        rx = rx_assoc['rx-key']
+        tx = _spi_xchg(s, rx)
+
+        cfg.pspnl.tx_assoc({"dev-id": cfg.psp_dev_id,
+                          "version": 0,
+                          "tx-key": tx,
+                          "sock-fd": s.fileno()})
+
+        data_len = _send_careful(cfg, s, 100)
+        _check_data_rx(cfg, data_len)
+        _check_data_outq(s, 0)
+
+        rot = cfg.pspnl.key_rotate({"id": cfg.psp_dev_id})
+        rot = cfg.pspnl.key_rotate({"id": cfg.psp_dev_id})
+
+        cur_stale = _get_stat(cfg, 'stale-events')
+        ksft_gt(cur_stale, prev_stale)
+
+        n = s.send(b'0123456789' * 200)
+        _check_data_outq(s, 2000, force_wait=True)
+    finally:
+        _close_psp_conn(cfg, s)
+
+
+def data_send_off(cfg):
+    """ Test data send when PSP is turned off """
+
+    s = info = udps = None
+    try:
+        s = _make_psp_conn(cfg)
+
+        rx_assoc = cfg.pspnl.rx_assoc({"version": 0,
+                                     "sock-fd": s.fileno()})
+        tx = _spi_xchg(s, rx_assoc['rx-key'])
+        cfg.pspnl.tx_assoc({"version": 0,
+                          "tx-key": tx,
+                          "sock-fd": s.fileno()})
+
+        _req_echo(cfg, s)
+
+        info = cfg.pspnl.dev_get({"id": cfg.psp_dev_id})
+        cfg.pspnl.dev_set({"id": cfg.psp_dev_id,
+                         "psp-versions-ena": 0})
+
+        # Try to catch the still-encapsulated PSP packets on a UDP socket
+        udps = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM)
+        udps.bind(('::', 1000))
+        wait_port_listen(1000, proto="udp")
+
+        _req_echo(cfg, s, expect_fail=True)
+
+        cfg.pspnl.dev_set({"id": cfg.psp_dev_id,
+                         "psp-versions-ena": info['psp-versions-ena']})
+        info = None
+        # We need some more TCP RTOs so lots of rounds
+        _recv_careful(cfg, s, 5, rounds=350)
+
+        # Will raise BlockingIOError if there are no packets
+        udps.recv(8192, socket.MSG_DONTWAIT)
+    finally:
+        if s:
+            _close_psp_conn(cfg, s)
+        if info:
+            cfg.pspnl.dev_set({"id": cfg.psp_dev_id,
+                             "psp-versions-ena": info['psp-versions-ena']})
+        if udps:
+            udps.close()
 
 
 def main() -> None:
