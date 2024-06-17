@@ -106,13 +106,35 @@ static int mlx5e_psp_key_rotate(struct psp_dev *psd, struct netlink_ext_ack *exa
 	return mlx5e_psp_rotate_key(priv->mdev);
 }
 
+static void mlx5e_psp_get_stats(struct psp_dev *psd, struct psp_dev_stats *stats)
+{
+	struct mlx5e_priv *priv = netdev_priv(psd->main_netdev);
+	struct mlx5e_psp_stats nstats;
+
+	mlx5e_accel_psp_fs_get_stats_fill(priv, &nstats);
+	stats->rx_packets = nstats.psp_rx_pkts;
+	stats->rx_bytes = nstats.psp_rx_bytes;
+	stats->rx_auth_fail = nstats.psp_rx_pkts_auth_fail;
+	stats->rx_error = nstats.psp_rx_pkts_frame_err;
+	stats->rx_bad = nstats.psp_rx_pkts_drop;
+	stats->tx_packets = nstats.psp_tx_pkts;
+	stats->tx_bytes = nstats.psp_tx_bytes;
+	stats->tx_error = atomic_read(&priv->psp->tx_drop);
+}
+
 static struct psp_dev_ops mlx5_psp_ops = {
 	.set_config   = mlx5e_psp_set_config,
 	.rx_spi_alloc = mlx5e_psp_rx_spi_alloc,
 	.tx_key_add   = mlx5e_psp_assoc_add,
 	.tx_key_del   = mlx5e_psp_assoc_del,
 	.key_rotate   = mlx5e_psp_key_rotate,
+	.get_stats    = mlx5e_psp_get_stats,
 };
+
+struct mlx5e_psp_stats *mlx5e_accel_psp_get_stats(struct mlx5e_priv *priv)
+{
+	return &priv->psp->stats;
+}
 
 void mlx5e_psp_unregister(struct mlx5e_priv *priv)
 {

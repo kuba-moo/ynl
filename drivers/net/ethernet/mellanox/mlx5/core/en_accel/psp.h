@@ -7,11 +7,29 @@
 #include <net/psp/types.h>
 #include "en.h"
 
+struct mlx5e_psp_stats {
+	u64 psp_rx_pkts;
+	u64 psp_rx_bytes;
+	u64 psp_rx_pkts_auth_fail;
+	u64 psp_rx_bytes_auth_fail;
+	u64 psp_rx_pkts_frame_err;
+	u64 psp_rx_bytes_frame_err;
+	u64 psp_rx_pkts_drop;
+	u64 psp_rx_bytes_drop;
+	u64 psp_tx_pkts;
+	u64 psp_tx_bytes;
+	u64 psp_tx_pkts_drop;
+	u64 psp_tx_bytes_drop;
+};
+
 struct mlx5e_psp {
 	struct psp_dev *psp;
 	struct psp_dev_caps caps;
 	struct mlx5e_psp_fs *fs;
 	atomic_t tx_key_cnt;
+	atomic_t tx_drop;
+	/* Stats manage */
+	struct mlx5e_psp_stats stats;
 };
 
 struct psp_key_spi {
@@ -41,6 +59,7 @@ int mlx5e_psp_generate_key_spi(struct mlx5_core_dev *mdev,
 			       enum mlx5_psp_gen_spi_in_key_size keysz,
 			       unsigned int keysz_bytes,
 			       struct psp_key_spi *keys);
+struct mlx5e_psp_stats *mlx5e_accel_psp_get_stats(struct mlx5e_priv *priv);
 #else
 static inline bool mlx5_is_psp_device(struct mlx5_core_dev *mdev)
 {
@@ -51,5 +70,9 @@ static inline void mlx5e_psp_register(struct mlx5e_priv *priv) { }
 static inline void mlx5e_psp_unregister(struct mlx5e_priv *priv) { }
 static inline int mlx5e_psp_init(struct mlx5e_priv *priv) { return 0; }
 static inline void mlx5e_psp_cleanup(struct mlx5e_priv *priv) { }
+static inline struct mlx5e_psp_stats *mlx5e_accel_psp_get_stats(struct mlx5e_priv *priv)
+{
+	return NULL;
+}
 #endif /* CONFIG_MLX5_EN_PSP */
 #endif /* __MLX5E_ACCEL_PSP_H__ */
