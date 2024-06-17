@@ -489,6 +489,7 @@ struct mlx5_sf_dev_table;
 struct mlx5_sf_hw_table;
 struct mlx5_sf_table;
 struct mlx5_crypto_dek_priv;
+struct mlx5_psp;
 
 struct mlx5_rate_limit {
 	u32			rate;
@@ -808,6 +809,7 @@ struct mlx5_core_dev {
 	enum mlx5_wc_state wc_state;
 	/* sync write combining state */
 	struct mutex wc_state_lock;
+	struct mlx5_psp         *psp;
 };
 
 struct mlx5_db {
