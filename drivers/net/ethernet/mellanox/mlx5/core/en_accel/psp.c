@@ -18,7 +18,12 @@ static int
 mlx5e_psp_set_config(struct psp_dev *psd, struct psp_dev_config *conf,
 		     struct netlink_ext_ack *extack)
 {
-	return 0; /* TODO: this should actually do things to the device */
+	struct mlx5e_priv *priv = netdev_priv(psd->main_netdev);
+
+	if (!!psd->config.versions != !!conf->versions)
+		accel_psp_fs_rx_ft_enable(priv->psp, !!conf->versions);
+
+	return 0;
 }
 
 static int

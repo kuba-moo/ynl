@@ -469,6 +469,35 @@ static int accel_psp_fs_rx_create(struct mlx5e_psp_fs *fs, enum accel_fs_psp_typ
 	return err;
 }
 
+void accel_psp_fs_rx_ft_enable(struct mlx5e_psp *psp, bool enable)
+{
+	struct mlx5e_accel_fs_psp *accel_psp;
+	struct mlx5_ttc_table *ttc;
+	enum accel_fs_psp_type i;
+
+	ttc = mlx5e_fs_get_ttc(psp->fs->fs, false);
+	accel_psp = psp->fs->rx_fs;
+
+	for (i = 0; i < ACCEL_FS_PSP_NUM_TYPES; i++) {
+		struct mlx5e_accel_fs_psp_prot *fs_prot;
+
+		fs_prot = &accel_psp->fs_prot[i];
+
+		mutex_lock(&fs_prot->prot_mutex);
+		/* connect */
+		if (enable) {
+			struct mlx5_flow_destination dest = {};
+
+			dest.type = MLX5_FLOW_DESTINATION_TYPE_FLOW_TABLE;
+			dest.ft = fs_prot->ft;
+			mlx5_ttc_fwd_dest(ttc, fs_psp2tt(i), &dest);
+		} else {
+			mlx5_ttc_fwd_default_dest(ttc, fs_psp2tt(i));
+		}
+		mutex_unlock(&fs_prot->prot_mutex);
+	}
+}
+
 static int accel_psp_fs_rx_ft_get(struct mlx5e_psp_fs *fs, enum accel_fs_psp_type type)
 {
 	struct mlx5_ttc_table *ttc = mlx5e_fs_get_ttc(fs->fs, false);
