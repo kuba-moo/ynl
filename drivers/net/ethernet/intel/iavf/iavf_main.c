@@ -2085,6 +2085,11 @@ static int iavf_process_aq_command(struct iavf_adapter *adapter)
 		return 0;
 	}
 
+	if (adapter->aq_required & IAVF_FLAG_AQ_CONFIGURE_QUEUES_BW) {
+		iavf_cfg_queues_bw(adapter);
+		return 0;
+	}
+
 	if (adapter->aq_required & IAVF_FLAG_AQ_CONFIGURE_QUEUES) {
 		iavf_configure_queues(adapter);
 		return 0;
@@ -2919,6 +2924,30 @@ static void iavf_disable_vf(struct iavf_adapter *adapter)
 }
 
 /**
+ * iavf_reconfig_qs_bw - Call-back task to handle hardware reset
+ * @adapter: board private structure
+ *
+ * After a reset, the shaper parameters of queues need to be replayed again.
+ * Since the net_shaper_info object inside TX rings persists across reset,
+ * set the update flag for all queues so that the virtchnl message is triggered
+ * for all queues.
+ **/
+static void iavf_reconfig_qs_bw(struct iavf_adapter *adapter)
+{
+	int i, num = 0;
+
+	for (i = 0; i < adapter->num_active_queues; i++)
+		if (adapter->tx_rings[i].q_shaper.bw_min ||
+		    adapter->tx_rings[i].q_shaper.bw_max) {
+			adapter->tx_rings[i].q_shaper_update = true;
+			num++;
+		}
+
+	if (num)
+		adapter->aq_required |= IAVF_FLAG_AQ_CONFIGURE_QUEUES_BW;
+}
+
+/**
  * iavf_reset_task - Call-back task to handle hardware reset
  * @work: pointer to work_struct
  *
@@ -3124,6 +3153,8 @@ continue_reset:
 		iavf_up_complete(adapter);
 
 		iavf_irq_enable(adapter, true);
+
+		iavf_reconfig_qs_bw(adapter);
 	} else {
 		iavf_change_state(adapter, __IAVF_DOWN);
 		wake_up(&adapter->down_waitqueue);
@@ -4893,6 +4924,115 @@ static netdev_features_t iavf_fix_features(struct net_device *netdev,
 	return iavf_fix_strip_features(adapter, features);
 }
 
+static int iavf_verify_handle(struct net_shaper_binding *binding,
+			      const struct net_shaper_handle *handle,
+			      struct netlink_ext_ack *extack)
+{
+	struct iavf_adapter *adapter = netdev_priv(binding->netdev);
+	enum net_shaper_scope scope = handle->scope;
+	int qid = handle->id;
+
+	if (scope != NET_SHAPER_SCOPE_QUEUE) {
+		NL_SET_ERR_MSG_FMT(extack, "Invalid shaper handle, unsupported scope %d",
+				   scope);
+		return -EOPNOTSUPP;
+	}
+
+	if (qid >= adapter->num_active_queues) {
+		NL_SET_ERR_MSG_FMT(extack, "Invalid shaper handle, queued id %d max %d",
+				   qid, adapter->num_active_queues);
+		return -EINVAL;
+	}
+	return 0;
+}
+
+static int
+iavf_shaper_set(struct net_shaper_binding *binding,
+		const struct net_shaper_handle *handle,
+		const struct net_shaper_info *shaper,
+		struct netlink_ext_ack *extack)
+{
+	struct iavf_adapter *adapter = netdev_priv(binding->netdev);
+	bool need_cfg_update = false;
+	int ret = 0;
+
+	ret = iavf_verify_handle(binding, handle, extack);
+	if (ret)
+		return ret;
+
+	if (handle->scope == NET_SHAPER_SCOPE_QUEUE) {
+		struct iavf_ring *tx_ring = &adapter->tx_rings[handle->id];
+
+		tx_ring->q_shaper.bw_min = div_u64(shaper->bw_min, 1000);
+		tx_ring->q_shaper.bw_max = div_u64(shaper->bw_max, 1000);
+		tx_ring->q_shaper_update = true;
+		need_cfg_update = true;
+	}
+
+	if (need_cfg_update)
+		adapter->aq_required |= IAVF_FLAG_AQ_CONFIGURE_QUEUES_BW;
+
+	return 0;
+}
+
+static int iavf_shaper_del(struct net_shaper_binding *binding,
+			   const struct net_shaper_handle *handle,
+			   struct netlink_ext_ack *extack)
+{
+	struct iavf_adapter *adapter = netdev_priv(binding->netdev);
+	bool need_cfg_update = false;
+	int ret;
+
+	ret = iavf_verify_handle(binding, handle, extack);
+	if (ret < 0)
+		return ret;
+
+	if (handle->scope == NET_SHAPER_SCOPE_QUEUE) {
+		struct iavf_ring *tx_ring = &adapter->tx_rings[handle->id];
+
+		tx_ring->q_shaper.bw_min = 0;
+		tx_ring->q_shaper.bw_max = 0;
+		tx_ring->q_shaper_update = true;
+		need_cfg_update = true;
+	}
+
+	if (need_cfg_update)
+		adapter->aq_required |= IAVF_FLAG_AQ_CONFIGURE_QUEUES_BW;
+
+	return 0;
+}
+
+static int iavf_shaper_group(struct net_shaper_binding *binding,
+			     int leaves_count,
+			     const struct net_shaper_handle *leaves_handles,
+			     const struct net_shaper_info *leaves,
+			     const struct net_shaper_handle *root_handle,
+			     const struct net_shaper_info *root,
+			     struct netlink_ext_ack *extack)
+{
+	return -EOPNOTSUPP;
+}
+
+static int iavf_shaper_cap(struct net_shaper_binding *binding,
+			   enum net_shaper_scope scope,
+			   unsigned long *flags)
+{
+	if (scope != NET_SHAPER_SCOPE_QUEUE)
+		return -EOPNOTSUPP;
+
+	*flags = BIT(NET_SHAPER_A_CAPABILITIES_SUPPORT_BW_MIN) |
+		 BIT(NET_SHAPER_A_CAPABILITIES_SUPPORT_BW_MAX) |
+		 BIT(NET_SHAPER_A_CAPABILITIES_SUPPORT_METRIC_BPS);
+	return 0;
+}
+
+static const struct net_shaper_ops iavf_shaper_ops = {
+	.set = iavf_shaper_set,
+	.delete = iavf_shaper_del,
+	.group = iavf_shaper_group,
+	.capabilities = iavf_shaper_cap,
+};
+
 static const struct net_device_ops iavf_netdev_ops = {
 	.ndo_open		= iavf_open,
 	.ndo_stop		= iavf_close,
@@ -4908,6 +5048,7 @@ static const struct net_device_ops iavf_netdev_ops = {
 	.ndo_fix_features	= iavf_fix_features,
 	.ndo_set_features	= iavf_set_features,
 	.ndo_setup_tc		= iavf_setup_tc,
+	.net_shaper_ops		= &iavf_shaper_ops,
 };
 
 /**
