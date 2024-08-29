@@ -799,7 +799,7 @@ again:
 }
 
 static int __net_shaper_group(struct net_shaper_binding *binding,
-			      int leaves_count,
+			      bool cache_node, int leaves_count,
 			      const struct net_shaper_handle *leaves_handles,
 			      struct net_shaper_info *leaves,
 			      struct net_shaper_handle *node_handle,
@@ -850,12 +850,15 @@ static int __net_shaper_group(struct net_shaper_binding *binding,
 		}
 	}
 
-	/* For newly created node scope shaper, the following will update
-	 * the handle, due to id allocation.
-	 */
-	ret = net_shaper_cache_pre_insert(binding, node_handle, extack);
-	if (ret)
-		return ret;
+	if (cache_node) {
+		/* For newly created node scope shaper, the following will
+		 * update the handle, due to id allocation.
+		 */
+		ret = net_shaper_cache_pre_insert(binding, node_handle,
+						  extack);
+		if (ret)
+			return ret;
+	}
 
 	for (i = 0; i < leaves_count; ++i) {
 		leaf_handle = leaves_handles[i];
@@ -883,12 +886,83 @@ static int __net_shaper_group(struct net_shaper_binding *binding,
 
 	if (parent)
 		parent->leaves++;
-	net_shaper_cache_commit(binding, 1, node_handle, node);
+	if (cache_node)
+		net_shaper_cache_commit(binding, 1, node_handle, node);
 	net_shaper_cache_commit(binding, leaves_count, leaves_handles, leaves);
 	return 0;
 
 rollback:
 	net_shaper_cache_rollback(binding);
+	return ret;
+}
+
+static int __net_shaper_pre_del_node(struct net_shaper_binding *binding,
+				     const struct net_shaper_handle *handle,
+				     const struct net_shaper_info *shaper,
+				     struct netlink_ext_ack *extack)
+{
+	struct net_shaper_data *data = net_shaper_binding_data(binding);
+	struct net_shaper_handle *leaves_handles, node_handle;
+	struct net_shaper_info *cur, *leaves, node = {};
+	int ret, leaves_count = 0;
+	unsigned long index;
+	bool cache_node;
+
+	if (!shaper->leaves)
+		return 0;
+
+	if (WARN_ON_ONCE(!data))
+		return -EINVAL;
+
+	/* Fetch the new node information. */
+	node_handle = shaper->parent;
+	cur = net_shaper_cache_lookup(binding, &node_handle);
+	if (cur) {
+		node = *cur;
+	} else {
+		/* A scope NODE shaper can be nested only to the NETDEV scope
+		 * shaper without creating the latter, this check may fail only
+		 * if the cache is in inconsistent status.
+		 */
+		if (WARN_ON_ONCE(node_handle.scope != NET_SHAPER_SCOPE_NETDEV))
+			return -EINVAL;
+	}
+
+	leaves = kcalloc(shaper->leaves,
+			 sizeof(struct net_shaper_info) +
+			 sizeof(struct net_shaper_handle), GFP_KERNEL);
+	if (!leaves)
+		return -ENOMEM;
+
+	leaves_handles = (struct net_shaper_handle *)&leaves[shaper->leaves];
+
+	/* Build the leaves arrays. */
+	xa_for_each(&data->shapers, index, cur) {
+		if (cur->parent.scope != handle->scope ||
+		    cur->parent.id != handle->id)
+			continue;
+
+		if (WARN_ON_ONCE(leaves_count == shaper->leaves)) {
+			ret = -EINVAL;
+			goto free;
+		}
+
+		net_shaper_index_to_handle(index,
+					   &leaves_handles[leaves_count]);
+		leaves[leaves_count++] = *cur;
+	}
+
+	/* When re-linking to the netdev shaper, avoid the eventual, implicit,
+	 * creation of the new node, would be surprising since the user is
+	 * doing a delete operation.
+	 */
+	cache_node = node_handle.scope != NET_SHAPER_SCOPE_NETDEV;
+	ret = __net_shaper_group(binding, cache_node, leaves_count,
+				 leaves_handles, leaves, &node_handle, &node,
+				 extack);
+
+free:
+	kfree(leaves);
 	return ret;
 }
 
@@ -914,9 +988,10 @@ static int net_shaper_delete(struct net_shaper_binding *binding,
 	}
 
 	if (handle->scope == NET_SHAPER_SCOPE_NODE) {
-		/* TODO: implement support for scope NODE delete. */
-		ret = -EINVAL;
-		goto unlock;
+		ret = __net_shaper_pre_del_node(binding, handle, shaper,
+						extack);
+		if (ret)
+			goto unlock;
 	}
 
 	ret = __net_shaper_delete(binding, handle, shaper, extack);
@@ -972,7 +1047,7 @@ static int net_shaper_group(struct net_shaper_binding *binding,
 			old_nodes[old_nodes_count++] = leaves[i].parent;
 
 	mutex_lock(&data->lock);
-	ret = __net_shaper_group(binding, leaves_count, leaves_handles,
+	ret = __net_shaper_group(binding, true, leaves_count, leaves_handles,
 				 leaves, node_handle, node, extack);
 
 	/* Check if we need to delete any NODE left alone by the new leaves
