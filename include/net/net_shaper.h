@@ -13,7 +13,7 @@ struct netlink_ext_ack;
 
 enum net_shaper_binding_type {
 	NET_SHAPER_BINDING_TYPE_NETDEV,
-	NET_SHAPER_BINDING_TYPE_DEVLINK_PORT,
+	/* NET_SHAPER_BINDING_TYPE_DEVLINK_PORT, */
 };
 
 struct net_shaper_binding {

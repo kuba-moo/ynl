@@ -10376,6 +10376,8 @@ int register_netdevice(struct net_device *dev)
 	xa_init_flags(&dev->ethtool->rss_ctx, XA_FLAGS_ALLOC1);
 	mutex_init(&dev->ethtool->rss_lock);
 
+	mutex_init(&dev->lock);
+
 	spin_lock_init(&dev->addr_list_lock);
 	netdev_set_addr_lockdep_class(dev);
 
@@ -11401,6 +11403,8 @@ void unregister_netdevice_many_notify(struct list_head *head,
 			dev->netdev_ops->ndo_uninit(dev);
 
 		mutex_destroy(&dev->ethtool->rss_lock);
+
+		mutex_destroy(&dev->lock);
 
 		if (skb)
 			rtmsg_ifinfo_send(skb, dev, GFP_KERNEL, portid, nlh);

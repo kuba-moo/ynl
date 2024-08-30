@@ -40,6 +40,24 @@ static struct net_shaper_binding *net_shaper_binding_from_ctx(void *ctx)
 	return &((struct net_shaper_nl_ctx *)ctx)->binding;
 }
 
+static void net_shaper_lock(struct net_shaper_binding *binding)
+{
+	switch (binding->type) {
+	case NET_SHAPER_BINDING_TYPE_NETDEV:
+		mutex_lock(&binding->netdev->lock);
+		break;
+	}
+}
+
+static void net_shaper_unlock(struct net_shaper_binding *binding)
+{
+	switch (binding->type) {
+	case NET_SHAPER_BINDING_TYPE_NETDEV:
+		mutex_unlock(&binding->netdev->lock);
+		break;
+	}
+}
+
 static struct net_shaper_data *
 net_shaper_binding_data(struct net_shaper_binding *binding)
 {
@@ -48,17 +66,6 @@ net_shaper_binding_data(struct net_shaper_binding *binding)
 		return READ_ONCE(binding->netdev->net_shaper_data);
 
 	/* No other type supported yet.*/
-	return NULL;
-}
-
-static struct net_shaper_data *
-net_shaper_binding_set_data(struct net_shaper_binding *binding,
-			    struct net_shaper_data *data)
-{
-	if (binding->type == NET_SHAPER_BINDING_TYPE_NETDEV)
-		return cmpxchg(&binding->netdev->net_shaper_data, NULL, data);
-
-	/* No devlink implementation yet.*/
 	return NULL;
 }
 
@@ -261,26 +268,24 @@ static struct net_shaper_data *
 net_shaper_cache_init(struct net_shaper_binding *binding,
 		      struct netlink_ext_ack *extack)
 {
-	struct net_shaper_data *new, *data = net_shaper_binding_data(binding);
+	struct net_shaper_data *new, *data;
 
-	if (!data) {
-		new = kmalloc(sizeof(*data), GFP_KERNEL);
-		if (!new) {
-			NL_SET_ERR_MSG(extack, "Can't allocate memory for shaper data");
-			return NULL;
-		}
+	data = net_shaper_binding_data(binding);
+	if (likely(data))
+		return data;
 
-		mutex_init(&new->lock);
-		xa_init(&new->shapers);
-		idr_init(&new->node_ids);
+	new = kmalloc(sizeof(*data), GFP_KERNEL);
+	if (!new)
+		return NULL;
 
-		/* No lock acquired yet, we can race with other operations. */
-		data = net_shaper_binding_set_data(binding, new);
-		if (!data)
-			data = new;
-		else
-			kfree(new);
+	switch (binding->type) {
+	case NET_SHAPER_BINDING_TYPE_NETDEV:
+		binding->netdev->net_shaper_data = data;
+		break;
 	}
+
+	xa_init(&new->shapers);
+	idr_init(&new->node_ids);
 	return data;
 }
 
@@ -734,34 +739,37 @@ static int net_shaper_set(struct net_shaper_binding *binding,
 			  const struct net_shaper_info *shaper,
 			  struct netlink_ext_ack *extack)
 {
-	struct net_shaper_data *data = net_shaper_cache_init(binding, extack);
 	const struct net_shaper_ops *ops = net_shaper_binding_ops(binding);
 	struct net_shaper_handle handle = *h;
+	struct net_shaper_data *data;
 	int ret;
-
-	if (!data)
-		return -ENOMEM;
 
 	/* Should never happen: binding lookup validates the ops presence */
 	if (WARN_ON_ONCE(!ops))
 		return -EOPNOTSUPP;
 
-	mutex_lock(&data->lock);
+	net_shaper_lock(binding);
+	data = net_shaper_cache_init(binding, extack);
+	if (!data) {
+		ret = -ENOMEM;
+		goto exit_unlock;
+	}
+
 	if (handle.scope == NET_SHAPER_SCOPE_NODE &&
 	    net_shaper_cache_lookup(binding, &handle)) {
 		ret = -ENOENT;
-		goto unlock;
+		goto exit_unlock;
 	}
 
 	ret = net_shaper_cache_pre_insert(binding, &handle, extack);
 	if (ret)
-		goto unlock;
+		goto exit_unlock;
 
 	ret = ops->set(binding, &handle, shaper, extack);
 	net_shaper_cache_commit(binding, 1, &handle, shaper);
 
-unlock:
-	mutex_unlock(&data->lock);
+exit_unlock:
+	net_shaper_unlock(binding);
 	return ret;
 }
 
@@ -1008,7 +1016,7 @@ static int net_shaper_delete(struct net_shaper_binding *binding,
 	if (!data)
 		return -ENOENT;
 
-	mutex_lock(&data->lock);
+	net_shaper_lock(binding);
 	shaper = net_shaper_cache_lookup(binding, handle);
 	if (!shaper) {
 		ret = -ENOENT;
@@ -1025,7 +1033,7 @@ static int net_shaper_delete(struct net_shaper_binding *binding,
 	ret = __net_shaper_delete(binding, handle, shaper, extack);
 
 unlock:
-	mutex_unlock(&data->lock);
+	net_shaper_unlock(binding);
 	return ret;
 }
 
@@ -1056,17 +1064,23 @@ static int net_shaper_group(struct net_shaper_binding *binding,
 			    struct net_shaper_info *node,
 			    struct netlink_ext_ack *extack)
 {
-	struct net_shaper_data *data = net_shaper_cache_init(binding, extack);
 	struct net_shaper_handle *old_nodes;
 	int i, ret, old_nodes_count = 0;
+	struct net_shaper_data *data;
 
-	if (!data)
-		return -ENOMEM;
+	net_shaper_lock(binding);
+	data = net_shaper_cache_init(binding, extack);
+	if (!data) {
+		ret = -ENOMEM;
+		goto exit_unlock;
+	}
 
 	old_nodes = kcalloc(leaves_count, sizeof(struct net_shaper_handle),
 			    GFP_KERNEL);
-	if (!old_nodes)
-		return -ENOMEM;
+	if (!old_nodes) {
+		ret = -ENOMEM;
+		goto exit_unlock;
+	}
 
 	for (i = 0; i < leaves_count; i++)
 		if (leaves[i].parent.scope == NET_SHAPER_SCOPE_NODE &&
@@ -1074,7 +1088,6 @@ static int net_shaper_group(struct net_shaper_binding *binding,
 		     leaves[i].parent.id != node_handle->id))
 			old_nodes[old_nodes_count++] = leaves[i].parent;
 
-	mutex_lock(&data->lock);
 	ret = __net_shaper_group(binding, true, leaves_count, leaves_handles,
 				 leaves, node_handle, node, extack);
 
@@ -1096,9 +1109,10 @@ static int net_shaper_group(struct net_shaper_binding *binding,
 		__net_shaper_delete(binding, &old_nodes[i], node, extack);
 	}
 
-	mutex_unlock(&data->lock);
-
 	kfree(old_nodes);
+
+exit_unlock:
+	net_shaper_unlock(binding);
 	return ret;
 }
 
@@ -1306,7 +1320,7 @@ static void net_shaper_flush(struct net_shaper_binding *binding)
 	if (!data)
 		return;
 
-	mutex_lock(&data->lock);
+	net_shaper_lock(binding);
 	xa_lock(&data->shapers);
 	xa_for_each(&data->shapers, index, cur) {
 		__xa_erase(&data->shapers, index);
@@ -1314,7 +1328,7 @@ static void net_shaper_flush(struct net_shaper_binding *binding)
 	}
 	xa_unlock(&data->shapers);
 	idr_destroy(&data->node_ids);
-	mutex_unlock(&data->lock);
+	net_shaper_unlock(binding);
 
 	kfree(data);
 }

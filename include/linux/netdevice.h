@@ -40,6 +40,7 @@
 #include <net/dcbnl.h>
 #endif
 #include <net/netprio_cgroup.h>
+#include <linux/mutex_types.h>
 #include <linux/netdev_features.h>
 #include <linux/neighbour.h>
 #include <linux/netdevice_xmit.h>
@@ -2391,6 +2392,11 @@ struct net_device {
 	/** @irq_moder: dim parameters used if IS_ENABLED(CONFIG_DIMLIB). */
 	struct dim_irq_moder	*irq_moder;
 
+	/**
+	 * @lock: protects @net_shaper_data, feel free to use for other
+	 * netdev-scope protection. Ordering: take after rtnl_lock.
+	 */
+	struct mutex		lock;
 #if IS_ENABLED(CONFIG_NET_SHAPER)
 	/**
 	 * @net_shaper_data: data tracking the current shaper status
