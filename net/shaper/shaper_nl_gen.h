@@ -14,6 +14,7 @@
 /* Common nested types */
 extern const struct nla_policy net_shaper_handle_nl_policy[NET_SHAPER_A_HANDLE_ID + 1];
 extern const struct nla_policy net_shaper_info_nl_policy[NET_SHAPER_A_WEIGHT + 1];
+extern const struct nla_policy net_shaper_info_leaf_nl_policy[NET_SHAPER_A_WEIGHT + 1];
 extern const struct nla_policy net_shaper_node_info_nl_policy[NET_SHAPER_A_PARENT + 1];
 
 int net_shaper_nl_pre_doit(const struct genl_split_ops *ops,

@@ -126,7 +126,7 @@ attribute-sets:
         name: leaves
         type: nest
         multi-attr: true
-        nested-attributes: info
+        nested-attributes: info-leaf
         doc: |
            Describes a set of leaves shapers for a @group operation.
       -
@@ -172,6 +172,16 @@ attribute-sets:
         name: bw-max
       -
         name: burst
+      -
+        name: priority
+      -
+        name: weight
+  -
+    name: info-leaf
+    subset-of: net-shaper
+    attributes:
+      -
+        name: handle
       -
         name: priority
       -
