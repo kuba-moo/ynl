@@ -5051,17 +5051,14 @@ static int iavf_shaper_group(struct net_shaper_binding *binding,
 	return -EOPNOTSUPP;
 }
 
-static int iavf_shaper_cap(struct net_shaper_binding *binding,
-			   enum net_shaper_scope scope,
-			   unsigned long *flags)
+static void iavf_shaper_cap(struct net_shaper_binding *binding,
+			    enum net_shaper_scope scope,
+			    unsigned long *flags)
 {
-	if (scope != NET_SHAPER_SCOPE_QUEUE)
-		return -EOPNOTSUPP;
-
-	*flags = BIT(NET_SHAPER_A_CAPS_SUPPORT_BW_MIN) |
-		 BIT(NET_SHAPER_A_CAPS_SUPPORT_BW_MAX) |
-		 BIT(NET_SHAPER_A_CAPS_SUPPORT_METRIC_BPS);
-	return 0;
+	if (scope == NET_SHAPER_SCOPE_QUEUE)
+		*flags = BIT(NET_SHAPER_A_CAPS_SUPPORT_BW_MIN) |
+			 BIT(NET_SHAPER_A_CAPS_SUPPORT_BW_MAX) |
+			 BIT(NET_SHAPER_A_CAPS_SUPPORT_METRIC_BPS);
 }
 
 static const struct net_shaper_ops iavf_shaper_ops = {

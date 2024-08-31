@@ -1251,8 +1251,8 @@ int net_shaper_nl_cap_get_doit(struct sk_buff *skb, struct genl_info *info)
 	struct net_shaper_binding *binding = info->user_ptr[0];
 	const struct net_shaper_ops *ops;
 	enum net_shaper_scope scope;
+	unsigned long flags = 0;
 	struct sk_buff *msg;
-	unsigned long flags;
 	int ret;
 
 	if (GENL_REQ_ATTR_CHECK(info, NET_SHAPER_A_CAPS_SCOPE))
@@ -1260,9 +1260,9 @@ int net_shaper_nl_cap_get_doit(struct sk_buff *skb, struct genl_info *info)
 
 	scope = nla_get_u32(info->attrs[NET_SHAPER_A_CAPS_SCOPE]);
 	ops = net_shaper_binding_ops(binding);
-	ret = ops->capabilities(binding, scope, &flags);
-	if (ret)
-		return ret;
+	ops->capabilities(binding, scope, &flags);
+	if (!flags)
+		return -EOPNOTSUPP;
 
 	msg = genlmsg_new(NLMSG_DEFAULT_SIZE, GFP_KERNEL);
 	if (!msg)
@@ -1289,13 +1289,15 @@ int net_shaper_nl_cap_get_dumpit(struct sk_buff *skb,
 	struct net_shaper_binding *binding;
 	const struct net_shaper_ops *ops;
 	enum net_shaper_scope scope;
-	unsigned long flags;
 	int ret;
 
 	binding = net_shaper_binding_from_ctx(cb->ctx);
 	ops = net_shaper_binding_ops(binding);
 	for (scope = 0; scope <= NET_SHAPER_SCOPE_MAX; ++scope) {
-		if (ops->capabilities(binding, scope, &flags))
+		unsigned long flags = 0;
+
+		ops->capabilities(binding, scope, &flags);
+		if (!flags)
 			continue;
 
 		ret = net_shaper_cap_fill_one(skb, binding, scope, flags,

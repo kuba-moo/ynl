@@ -502,12 +502,11 @@ static int nsim_shaper_group(struct net_shaper_binding *binding,
 	return 0;
 }
 
-static int nsim_shaper_cap(struct net_shaper_binding *binding,
-			   enum net_shaper_scope scope,
-			   unsigned long *flags)
+static void nsim_shaper_cap(struct net_shaper_binding *binding,
+			    enum net_shaper_scope scope,
+			    unsigned long *flags)
 {
 	*flags = ULONG_MAX;
-	return 0;
 }
 
 static const struct net_shaper_ops nsim_shaper_ops = {

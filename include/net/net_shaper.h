@@ -111,11 +111,9 @@ struct net_shaper_ops {
 	 *
 	 * Fills the bitmask @cap with the supported capabilities for the
 	 * specified @scope and device @dev.
-	 *
-	 * Returns 0 on success or a negative error value otherwise.
 	 */
-	int (*capabilities)(struct net_shaper_binding *binding,
-			    enum net_shaper_scope scope, unsigned long *cap);
+	void (*capabilities)(struct net_shaper_binding *binding,
+			     enum net_shaper_scope scope, unsigned long *cap);
 };
 
 #endif
