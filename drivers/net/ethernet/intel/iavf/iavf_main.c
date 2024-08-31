@@ -4979,6 +4979,7 @@ iavf_verify_shaper_info(struct net_shaper_binding *binding,
 			NL_SET_ERR_MSG_FMT(extack, "Max rate (%llu) of queue %d can't exceed max TX rate of VF (%llu kbps)",
 					   shaper->bw_max, handle->id,
 					   vf_max);
+			return -EINVAL;
 		}
 	}
 	return 0;
