@@ -421,8 +421,7 @@ static int net_shaper_parse_handle(const struct nlattr *attr,
 
 	scope_attr = tb[NET_SHAPER_A_HANDLE_SCOPE];
 	if (!scope_attr) {
-		NL_SET_BAD_ATTR(info->extack,
-				tb[NET_SHAPER_A_HANDLE_SCOPE]);
+		NL_SET_BAD_ATTR(info->extack, tb[NET_SHAPER_A_HANDLE_SCOPE]);
 		return -EINVAL;
 	}
 
@@ -677,8 +676,7 @@ int net_shaper_nl_get_doit(struct sk_buff *skb, struct genl_info *info)
 
 	shaper = net_shaper_cache_lookup(binding, &handle);
 	if (!shaper) {
-		NL_SET_BAD_ATTR(info->extack,
-				info->attrs[NET_SHAPER_A_HANDLE]);
+		NL_SET_BAD_ATTR(info->extack, info->attrs[NET_SHAPER_A_HANDLE]);
 		return -ENOENT;
 	}
 
