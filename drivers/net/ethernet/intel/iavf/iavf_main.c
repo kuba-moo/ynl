@@ -4945,12 +4945,6 @@ static int iavf_verify_handle(struct net_shaper_binding *binding,
 	enum net_shaper_scope scope = handle->scope;
 	int qid = handle->id;
 
-	if (scope != NET_SHAPER_SCOPE_QUEUE) {
-		NL_SET_ERR_MSG_FMT(extack, "Invalid shaper handle, unsupported scope %d",
-				   scope);
-		return -EOPNOTSUPP;
-	}
-
 	if (qid >= adapter->num_active_queues) {
 		NL_SET_ERR_MSG_FMT(extack, "Invalid shaper handle, queued id %d max %d",
 				   qid, adapter->num_active_queues);
@@ -4973,15 +4967,14 @@ iavf_verify_shaper_info(struct net_shaper_binding *binding,
 	if (ret)
 		return ret;
 
-	if (handle->scope == NET_SHAPER_SCOPE_QUEUE) {
-		vf_max = adapter->qos_caps->cap[0].shaper.peak;
-		if (vf_max && shaper->bw_max > vf_max) {
-			NL_SET_ERR_MSG_FMT(extack, "Max rate (%llu) of queue %d can't exceed max TX rate of VF (%llu kbps)",
-					   shaper->bw_max, handle->id,
-					   vf_max);
-			return -EINVAL;
-		}
+	vf_max = adapter->qos_caps->cap[0].shaper.peak;
+	if (vf_max && shaper->bw_max > vf_max) {
+		NL_SET_ERR_MSG_FMT(extack, "Max rate (%llu) of queue %d can't exceed max TX rate of VF (%llu kbps)",
+				   shaper->bw_max, handle->id,
+				   vf_max);
+		return -EINVAL;
 	}
+
 	return 0;
 }
 
@@ -4992,24 +4985,19 @@ iavf_shaper_set(struct net_shaper_binding *binding,
 		struct netlink_ext_ack *extack)
 {
 	struct iavf_adapter *adapter = netdev_priv(binding->netdev);
-	bool need_cfg_update = false;
+	struct iavf_ring *tx_ring;
 	int ret = 0;
 
 	ret = iavf_verify_shaper_info(binding, handle, shaper, extack);
 	if (ret)
 		return ret;
 
-	if (handle->scope == NET_SHAPER_SCOPE_QUEUE) {
-		struct iavf_ring *tx_ring = &adapter->tx_rings[handle->id];
+	tx_ring = &adapter->tx_rings[handle->id];
+	tx_ring->q_shaper.bw_min = div_u64(shaper->bw_min, 1000);
+	tx_ring->q_shaper.bw_max = div_u64(shaper->bw_max, 1000);
+	tx_ring->q_shaper_update = true;
 
-		tx_ring->q_shaper.bw_min = div_u64(shaper->bw_min, 1000);
-		tx_ring->q_shaper.bw_max = div_u64(shaper->bw_max, 1000);
-		tx_ring->q_shaper_update = true;
-		need_cfg_update = true;
-	}
-
-	if (need_cfg_update)
-		adapter->aq_required |= IAVF_FLAG_AQ_CONFIGURE_QUEUES_BW;
+	adapter->aq_required |= IAVF_FLAG_AQ_CONFIGURE_QUEUES_BW;
 
 	return 0;
 }
@@ -5019,24 +5007,19 @@ static int iavf_shaper_del(struct net_shaper_binding *binding,
 			   struct netlink_ext_ack *extack)
 {
 	struct iavf_adapter *adapter = netdev_priv(binding->netdev);
-	bool need_cfg_update = false;
+	struct iavf_ring *tx_ring;
 	int ret;
 
 	ret = iavf_verify_handle(binding, handle, extack);
 	if (ret < 0)
 		return ret;
 
-	if (handle->scope == NET_SHAPER_SCOPE_QUEUE) {
-		struct iavf_ring *tx_ring = &adapter->tx_rings[handle->id];
+	tx_ring = &adapter->tx_rings[handle->id];
+	tx_ring->q_shaper.bw_min = 0;
+	tx_ring->q_shaper.bw_max = 0;
+	tx_ring->q_shaper_update = true;
 
-		tx_ring->q_shaper.bw_min = 0;
-		tx_ring->q_shaper.bw_max = 0;
-		tx_ring->q_shaper_update = true;
-		need_cfg_update = true;
-	}
-
-	if (need_cfg_update)
-		adapter->aq_required |= IAVF_FLAG_AQ_CONFIGURE_QUEUES_BW;
+	adapter->aq_required |= IAVF_FLAG_AQ_CONFIGURE_QUEUES_BW;
 
 	return 0;
 }
