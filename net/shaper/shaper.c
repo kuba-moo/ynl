@@ -462,8 +462,7 @@ static int net_shaper_parse_info(struct net_shaper_binding *binding,
 		return ret;
 
 	if (handle->scope == NET_SHAPER_SCOPE_UNSPEC) {
-		NL_SET_BAD_ATTR(info->extack,
-				info->attrs[NET_SHAPER_A_HANDLE]);
+		NL_SET_BAD_ATTR(info->extack, tb[NET_SHAPER_A_HANDLE]);
 		return -EINVAL;
 	}
 
