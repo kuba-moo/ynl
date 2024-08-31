@@ -5040,17 +5040,6 @@ static int iavf_shaper_del(struct net_shaper_binding *binding,
 	return 0;
 }
 
-static int iavf_shaper_group(struct net_shaper_binding *binding,
-			     int leaves_count,
-			     const struct net_shaper_handle *leaves_handles,
-			     const struct net_shaper_info *leaves,
-			     const struct net_shaper_handle *root_handle,
-			     const struct net_shaper_info *root,
-			     struct netlink_ext_ack *extack)
-{
-	return -EOPNOTSUPP;
-}
-
 static void iavf_shaper_cap(struct net_shaper_binding *binding,
 			    enum net_shaper_scope scope,
 			    unsigned long *flags)
@@ -5064,7 +5053,6 @@ static void iavf_shaper_cap(struct net_shaper_binding *binding,
 static const struct net_shaper_ops iavf_shaper_ops = {
 	.set = iavf_shaper_set,
 	.delete = iavf_shaper_del,
-	.group = iavf_shaper_group,
 	.capabilities = iavf_shaper_cap,
 };
 
