@@ -632,7 +632,7 @@ int net_shaper_nl_post_dumpit(struct netlink_callback *cb)
 int net_shaper_nl_cap_pre_doit(const struct genl_split_ops *ops,
 			       struct sk_buff *skb, struct genl_info *info)
 {
-	return net_shaper_generic_pre(info, NET_SHAPER_A_CAPABILITIES_IFINDEX);
+	return net_shaper_generic_pre(info, NET_SHAPER_A_CAPS_IFINDEX);
 }
 
 void net_shaper_nl_cap_post_doit(const struct genl_split_ops *ops,
@@ -646,7 +646,7 @@ int net_shaper_nl_cap_pre_dumpit(struct netlink_callback *cb)
 	struct net_shaper_nl_ctx *ctx = (struct net_shaper_nl_ctx *)cb->ctx;
 
 	return net_shaper_ctx_init(genl_info_dump(cb),
-				   NET_SHAPER_A_CAPABILITIES_IFINDEX, ctx);
+				   NET_SHAPER_A_CAPS_IFINDEX, ctx);
 }
 
 int net_shaper_nl_cap_post_dumpit(struct netlink_callback *cb)
@@ -1227,13 +1227,12 @@ net_shaper_cap_fill_one(struct sk_buff *msg,
 	if (!hdr)
 		return -EMSGSIZE;
 
-	if (net_shaper_fill_binding(msg, binding,
-				    NET_SHAPER_A_CAPABILITIES_IFINDEX) ||
-	    nla_put_u32(msg, NET_SHAPER_A_CAPABILITIES_SCOPE, scope))
+	if (net_shaper_fill_binding(msg, binding, NET_SHAPER_A_CAPS_IFINDEX) ||
+	    nla_put_u32(msg, NET_SHAPER_A_CAPS_SCOPE, scope))
 		goto nla_put_failure;
 
-	for (cur = NET_SHAPER_A_CAPABILITIES_SUPPORT_METRIC_BPS;
-	     cur <= NET_SHAPER_A_CAPABILITIES_MAX; ++cur) {
+	for (cur = NET_SHAPER_A_CAPS_SUPPORT_METRIC_BPS;
+	     cur <= NET_SHAPER_A_CAPS_MAX; ++cur) {
 		if (flags & BIT(cur) && nla_put_flag(msg, cur))
 			goto nla_put_failure;
 	}
@@ -1256,10 +1255,10 @@ int net_shaper_nl_cap_get_doit(struct sk_buff *skb, struct genl_info *info)
 	unsigned long flags;
 	int ret;
 
-	if (GENL_REQ_ATTR_CHECK(info, NET_SHAPER_A_CAPABILITIES_SCOPE))
+	if (GENL_REQ_ATTR_CHECK(info, NET_SHAPER_A_CAPS_SCOPE))
 		return -EINVAL;
 
-	scope = nla_get_u32(info->attrs[NET_SHAPER_A_CAPABILITIES_SCOPE]);
+	scope = nla_get_u32(info->attrs[NET_SHAPER_A_CAPS_SCOPE]);
 	ops = net_shaper_binding_ops(binding);
 	ret = ops->capabilities(binding, scope, &flags);
 	if (ret)

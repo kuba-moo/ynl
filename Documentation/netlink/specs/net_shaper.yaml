@@ -207,7 +207,8 @@ attribute-sets:
       -
         name: weight
   -
-    name: capabilities
+    name: caps
+    doc: Attribute set for describing capabilities of a device.
     attributes:
       -
         name: ifindex
@@ -369,7 +370,7 @@ operations:
       doc: |
         Get the shaper capabilities supported by the given device
         for the specified scope.
-      attribute-set: capabilities
+      attribute-set: caps
 
       do:
         pre: net-shaper-nl-cap-pre-doit
