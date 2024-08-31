@@ -442,12 +442,78 @@ static int net_shaper_parse_handle(const struct nlattr *attr,
 	return 0;
 }
 
+static int net_shaper_validate_caps(struct net_shaper_binding *binding,
+				    struct nlattr **tb,
+				    const struct genl_info *info,
+				    struct net_shaper_handle *handle,
+				    struct net_shaper_info *shaper,
+				    bool nest)
+{
+	const struct net_shaper_ops *ops = net_shaper_binding_ops(binding);
+	struct nlattr *bad = NULL;
+	unsigned long caps = 0;
+
+	ops->capabilities(binding, handle->scope, &caps);
+
+	if (nest && !(caps & BIT(NET_SHAPER_A_CAPS_SUPPORT_NESTING))) {
+		NL_SET_ERR_MSG(info->extack,
+			       "nesting not supported at given scope");
+		return -EOPNOTSUPP;
+	}
+
+	if (tb[NET_SHAPER_A_PRIORITY] &&
+	    !(caps & BIT(NET_SHAPER_A_CAPS_SUPPORT_PRIORITY)))
+		bad = tb[NET_SHAPER_A_PRIORITY];
+	if (tb[NET_SHAPER_A_WEIGHT] &&
+	    !(caps & BIT(NET_SHAPER_A_CAPS_SUPPORT_WEIGHT)))
+		bad = tb[NET_SHAPER_A_WEIGHT];
+
+	/* Check metric type if there is *any* rate-related setting */
+	if (tb[NET_SHAPER_A_METRIC] || tb[NET_SHAPER_A_BURST] ||
+	    tb[NET_SHAPER_A_BW_MIN] || tb[NET_SHAPER_A_BW_MAX]) {
+		u32 metric_cap = NET_SHAPER_A_CAPS_SUPPORT_METRIC_BPS;
+
+		if (tb[NET_SHAPER_A_METRIC])
+			metric_cap += nla_get_u32(tb[NET_SHAPER_A_METRIC]);
+		else
+			metric_cap += shaper->metric;
+		if (!(caps & BIT(metric_cap))) {
+			if (tb[NET_SHAPER_A_METRIC])
+				bad = tb[NET_SHAPER_A_METRIC];
+			else /* force a failure of rate attrs */
+				caps = 0;
+		}
+	}
+	if (tb[NET_SHAPER_A_BW_MIN] &&
+	    !(caps & BIT(NET_SHAPER_A_CAPS_SUPPORT_BW_MIN)))
+		bad = tb[NET_SHAPER_A_BW_MIN];
+	if (tb[NET_SHAPER_A_BW_MAX] &&
+	    !(caps & BIT(NET_SHAPER_A_CAPS_SUPPORT_BW_MAX)))
+		bad = tb[NET_SHAPER_A_BW_MAX];
+	if (tb[NET_SHAPER_A_BURST] &&
+	    !(caps & BIT(NET_SHAPER_A_CAPS_SUPPORT_BURST)))
+		bad = tb[NET_SHAPER_A_BURST];
+	/* Don't add checks here, add them above metric checking.
+	 * Metric checking may force clear caps causing false positive hits.
+	 */
+
+	if (!caps)
+		bad = tb[NET_SHAPER_A_HANDLE];
+
+	if (bad) {
+		NL_SET_BAD_ATTR(info->extack, bad);
+		return -EOPNOTSUPP;
+	}
+
+	return 0;
+}
+
 static int net_shaper_parse_info(struct net_shaper_binding *binding,
 				 struct nlattr **tb,
 				 const struct genl_info *info,
 				 struct net_shaper_handle *handle,
 				 struct net_shaper_info *shaper,
-				 bool *cached)
+				 bool nest, bool *cached)
 {
 	struct net_shaper_info *old;
 	int ret;
@@ -464,6 +530,10 @@ static int net_shaper_parse_info(struct net_shaper_binding *binding,
 		NL_SET_BAD_ATTR(info->extack, tb[NET_SHAPER_A_HANDLE]);
 		return -EINVAL;
 	}
+
+	ret = net_shaper_validate_caps(binding, tb, info, handle, shaper, nest);
+	if (ret)
+		return ret;
 
 	/* Fetch existing data, if any, so that user provide info will
 	 * incrementally update the existing shaper configuration.
@@ -512,7 +582,8 @@ static int net_shaper_parse_info_nest(struct net_shaper_binding *binding,
 	if (ret < 0)
 		return ret;
 
-	ret = net_shaper_parse_info(binding, tb, info, handle, shaper, &cached);
+	ret = net_shaper_parse_info(binding, tb, info, handle, shaper, false,
+				    &cached);
 	if (ret < 0)
 		return ret;
 
@@ -546,7 +617,7 @@ static int net_shaper_parse_node(struct net_shaper_binding *binding,
 	if (ret < 0)
 		return ret;
 
-	ret = net_shaper_parse_info(binding, tb, info, handle, shaper,
+	ret = net_shaper_parse_info(binding, tb, info, handle, shaper, true,
 				    &cached);
 	if (ret)
 		return ret;
