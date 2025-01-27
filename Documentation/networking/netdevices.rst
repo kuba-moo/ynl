@@ -211,18 +211,18 @@ struct net_device synchronization rules
 =======================================
 ndo_open:
 	Synchronization: rtnl_lock() semaphore. In addition, netdev instance
-	lock if the driver implements shaper API.
+	lock if the driver implements queue management or shaper API.
 	Context: process
 
 ndo_stop:
 	Synchronization: rtnl_lock() semaphore. In addition, netdev instance
-	lock if the driver implements shaper API.
+	lock if the driver implements queue management or shaper API.
 	Context: process
 	Note: netif_running() is guaranteed false
 
 ndo_do_ioctl:
 	Synchronization: rtnl_lock() semaphore. In addition, netdev instance
-	lock if the driver implements shaper API.
+	lock if the driver implements queue management or shaper API.
 	Context: process
 
 	This is only called by network subsystems internally,
@@ -231,7 +231,7 @@ ndo_do_ioctl:
 
 ndo_siocbond:
 	Synchronization: rtnl_lock() semaphore. In addition, netdev instance
-	lock if the driver implements shaper API.
+	lock if the driver implements queue management or shaper API.
         Context: process
 
 	Used by the bonding driver for the SIOCBOND family of
@@ -239,7 +239,7 @@ ndo_siocbond:
 
 ndo_siocwandev:
 	Synchronization: rtnl_lock() semaphore. In addition, netdev instance
-	lock if the driver implements shaper API.
+	lock if the driver implements queue management or shaper API.
 	Context: process
 
 	Used by the drivers/net/wan framework to handle
@@ -247,7 +247,7 @@ ndo_siocwandev:
 
 ndo_siocdevprivate:
 	Synchronization: rtnl_lock() semaphore. In addition, netdev instance
-	lock if the driver implements shaper API.
+	lock if the driver implements queue management or shaper API.
 	Context: process
 
 	This is used to implement SIOCDEVPRIVATE ioctl helpers.
@@ -255,7 +255,7 @@ ndo_siocdevprivate:
 
 ndo_eth_ioctl:
 	Synchronization: rtnl_lock() semaphore. In addition, netdev instance
-	lock if the driver implements shaper API.
+	lock if the driver implements queue management or shaper API.
 	Context: process
 
 ndo_get_stats:
@@ -265,7 +265,7 @@ ndo_get_stats:
 
 ndo_setup_tc:
 	Synchronization: rtnl_lock() semaphore. In addition, netdev instance
-	lock if the driver implements shaper API.
+	lock if the driver implements queue management or shaper API.
 
 ndo_start_xmit:
 	Synchronization: __netif_tx_lock spinlock.
@@ -309,6 +309,20 @@ napi->poll:
 	Context:
 		 softirq
 		 will be called with interrupts disabled by netconsole.
+
+struct netdev_queue_mgmt_ops synchronization rules
+==================================================
+ndo_queue_mem_alloc:
+	Synchronization: Netdev instance lock.
+
+ndo_queue_mem_free:
+	Synchronization: Netdev instance lock.
+
+ndo_queue_start:
+	Synchronization: Netdev instance lock.
+
+ndo_queue_stop:
+	Synchronization: Netdev instance lock.
 
 NETDEV_INTERNAL symbol namespace
 ================================

@@ -4929,10 +4929,12 @@ static void bnxt_self_test(struct net_device *dev, struct ethtool_test *etest,
 		return;
 	}
 
+	netdev_lock(dev);
+
 	memset(buf, 0, sizeof(u64) * bp->num_tests);
 	if (!netif_running(dev)) {
 		etest->flags |= ETH_TEST_FL_FAILED;
-		return;
+		goto unlock;
 	}
 
 	if ((etest->flags & ETH_TEST_FL_EXTERNAL_LB) &&
@@ -4943,7 +4945,7 @@ static void bnxt_self_test(struct net_device *dev, struct ethtool_test *etest,
 		if (bp->pf.active_vfs || !BNXT_SINGLE_PF(bp)) {
 			etest->flags |= ETH_TEST_FL_FAILED;
 			netdev_warn(dev, "Offline tests cannot be run with active VFs or on shared PF\n");
-			return;
+			goto unlock;
 		}
 		offline = true;
 	}
@@ -4965,7 +4967,7 @@ static void bnxt_self_test(struct net_device *dev, struct ethtool_test *etest,
 		rc = bnxt_half_open_nic(bp);
 		if (rc) {
 			etest->flags |= ETH_TEST_FL_FAILED;
-			return;
+			goto unlock;
 		}
 		buf[BNXT_MACLPBK_TEST_IDX] = 1;
 		if (bp->mac_flags & BNXT_MAC_FL_NO_MAC_LPBK)
@@ -5017,6 +5019,9 @@ skip_phy_loopback:
 			etest->flags |= ETH_TEST_FL_FAILED;
 		}
 	}
+
+unlock:
+	netdev_unlock(dev);
 }
 
 static int bnxt_reset(struct net_device *dev, u32 *flags)
