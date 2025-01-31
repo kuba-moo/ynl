@@ -246,8 +246,10 @@ static int phonet_device_autoconf(struct net_device *dev)
 	if (!dev->netdev_ops->ndo_siocdevprivate)
 		return -EOPNOTSUPP;
 
+	netdev_lock_ops(dev);
 	ret = dev->netdev_ops->ndo_siocdevprivate(dev, (struct ifreq *)&req,
 						  NULL, SIOCPNGAUTOCONF);
+	netdev_unlock_ops(dev);
 	if (ret < 0)
 		return ret;
 
