@@ -1754,6 +1754,28 @@ void dev_close(struct net_device *dev)
 }
 EXPORT_SYMBOL(dev_close);
 
+int dev_setup_tc(struct net_device *dev, enum tc_setup_type type,
+		 void *type_data)
+{
+	const struct net_device_ops *ops = dev->netdev_ops;
+
+	ASSERT_RTNL();
+
+	if (tc_can_offload(dev) && ops->ndo_setup_tc) {
+		int ret = -ENODEV;
+
+		if (netif_device_present(dev)) {
+			netdev_lock_ops(dev);
+			ret = ops->ndo_setup_tc(dev, type, type_data);
+			netdev_unlock_ops(dev);
+		}
+
+		return ret;
+	}
+
+	return -EOPNOTSUPP;
+}
+EXPORT_SYMBOL(dev_setup_tc);
 
 /**
  *	dev_disable_lro - disable Large Receive Offload on a device

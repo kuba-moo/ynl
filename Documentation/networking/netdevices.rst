@@ -257,6 +257,10 @@ ndo_get_stats:
 	Synchronization: rtnl_lock() semaphore, or RCU.
 	Context: atomic (can't sleep under RCU)
 
+ndo_setup_tc:
+	Synchronization: rtnl_lock() semaphore. In addition, netdev instance
+	lock if the driver implements shaper API.
+
 ndo_start_xmit:
 	Synchronization: __netif_tx_lock spinlock.
 

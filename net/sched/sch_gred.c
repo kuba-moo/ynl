@@ -314,9 +314,6 @@ static void gred_offload(struct Qdisc *sch, enum tc_gred_command command)
 	struct net_device *dev = qdisc_dev(sch);
 	struct tc_gred_qopt_offload *opt = table->opt;
 
-	if (!tc_can_offload(dev) || !dev->netdev_ops->ndo_setup_tc)
-		return;
-
 	memset(opt, 0, sizeof(*opt));
 	opt->command = command;
 	opt->handle = sch->handle;
@@ -348,7 +345,7 @@ static void gred_offload(struct Qdisc *sch, enum tc_gred_command command)
 		opt->set.qstats = &sch->qstats;
 	}
 
-	dev->netdev_ops->ndo_setup_tc(dev, TC_SETUP_QDISC_GRED, opt);
+	dev_setup_tc(dev, TC_SETUP_QDISC_GRED, opt);
 }
 
 static int gred_offload_dump_stats(struct Qdisc *sch)

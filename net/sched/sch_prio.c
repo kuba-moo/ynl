@@ -145,9 +145,6 @@ static int prio_offload(struct Qdisc *sch, struct tc_prio_qopt *qopt)
 		.parent = sch->parent,
 	};
 
-	if (!tc_can_offload(dev) || !dev->netdev_ops->ndo_setup_tc)
-		return -EOPNOTSUPP;
-
 	if (qopt) {
 		opt.command = TC_PRIO_REPLACE;
 		opt.replace_params.bands = qopt->bands;
@@ -158,7 +155,7 @@ static int prio_offload(struct Qdisc *sch, struct tc_prio_qopt *qopt)
 		opt.command = TC_PRIO_DESTROY;
 	}
 
-	return dev->netdev_ops->ndo_setup_tc(dev, TC_SETUP_QDISC_PRIO, &opt);
+	return dev_setup_tc(dev, TC_SETUP_QDISC_PRIO, &opt);
 }
 
 static void
