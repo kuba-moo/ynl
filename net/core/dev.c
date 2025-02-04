@@ -6871,28 +6871,39 @@ void netif_queue_set_napi(struct net_device *dev, unsigned int queue_index,
 }
 EXPORT_SYMBOL(netif_queue_set_napi);
 
-#ifdef CONFIG_RFS_ACCEL
 static void
-netif_irq_cpu_rmap_notify(struct irq_affinity_notify *notify,
-			  const cpumask_t *mask)
+netif_napi_irq_notify(struct irq_affinity_notify *notify,
+		      const cpumask_t *mask)
 {
 	struct napi_struct *napi =
 		container_of(notify, struct napi_struct, notify);
+#ifdef CONFIG_RFS_ACCEL
 	struct cpu_rmap *rmap = napi->dev->rx_cpu_rmap;
 	int err;
+#endif
 
-	err = cpu_rmap_update(rmap, napi->napi_rmap_idx, mask);
-	if (err)
-		netdev_warn(napi->dev, "RMAP update failed (%d)\n",
-			    err);
+	if (napi->config && napi->dev->irq_affinity_auto)
+		cpumask_copy(&napi->config->affinity_mask, mask);
+
+#ifdef CONFIG_RFS_ACCEL
+	if (napi->dev->rx_cpu_rmap_auto) {
+		err = cpu_rmap_update(rmap, napi->napi_rmap_idx, mask);
+		if (err)
+			netdev_warn(napi->dev, "RMAP update failed (%d)\n",
+				    err);
+	}
+#endif
 }
 
+#ifdef CONFIG_RFS_ACCEL
 static void netif_napi_affinity_release(struct kref *ref)
 {
 	struct napi_struct *napi =
 		container_of(ref, struct napi_struct, notify.kref);
 	struct cpu_rmap *rmap = napi->dev->rx_cpu_rmap;
 
+	if (!napi->dev->rx_cpu_rmap_auto)
+		return;
 	rmap->obj[napi->napi_rmap_idx] = NULL;
 	napi->napi_rmap_idx = -1;
 	cpu_rmap_put(rmap);
@@ -6903,7 +6914,7 @@ static int napi_irq_cpu_rmap_add(struct napi_struct *napi, int irq)
 	struct cpu_rmap *rmap = napi->dev->rx_cpu_rmap;
 	int rc;
 
-	napi->notify.notify = netif_irq_cpu_rmap_notify;
+	napi->notify.notify = netif_napi_irq_notify;
 	napi->notify.release = netif_napi_affinity_release;
 	cpu_rmap_get(rmap);
 	rc = cpu_rmap_add(rmap, napi);
@@ -6953,6 +6964,10 @@ static void netif_del_cpu_rmap(struct net_device *dev)
 }
 
 #else
+static void netif_napi_affinity_release(struct kref *ref)
+{
+}
+
 static int napi_irq_cpu_rmap_add(struct napi_struct *napi, int irq)
 {
 	return 0;
@@ -6973,16 +6988,27 @@ void netif_napi_set_irq_locked(struct napi_struct *napi, int irq)
 {
 	int rc;
 
-	/* Remove existing rmap entries */
-	if (napi->dev->rx_cpu_rmap_auto &&
+	/* Remove existing resources */
+	if ((napi->dev->rx_cpu_rmap_auto || napi->dev->irq_affinity_auto) &&
 	    napi->irq != irq && napi->irq > 0)
 		irq_set_affinity_notifier(napi->irq, NULL);
 
 	napi->irq = irq;
-	if (irq > 0) {
+	if (irq < 0)
+		return;
+
+	if (napi->dev->rx_cpu_rmap_auto) {
 		rc = napi_irq_cpu_rmap_add(napi, irq);
 		if (rc)
 			netdev_warn(napi->dev, "Unable to update ARFS map (%d)\n",
+				    rc);
+	} else if (napi->config && napi->dev->irq_affinity_auto) {
+		napi->notify.notify = netif_napi_irq_notify;
+		napi->notify.release = netif_napi_affinity_release;
+
+		rc = irq_set_affinity_notifier(irq, &napi->notify);
+		if (rc)
+			netdev_warn(napi->dev, "Unable to set IRQ notifier (%d)\n",
 				    rc);
 	}
 }
@@ -6993,6 +7019,10 @@ static void napi_restore_config(struct napi_struct *n)
 	n->defer_hard_irqs = n->config->defer_hard_irqs;
 	n->gro_flush_timeout = n->config->gro_flush_timeout;
 	n->irq_suspend_timeout = n->config->irq_suspend_timeout;
+
+	if (n->irq > 0 && n->dev->irq_affinity_auto)
+		irq_set_affinity(n->irq, &n->config->affinity_mask);
+
 	/* a NAPI ID might be stored in the config, if so use it. if not, use
 	 * napi_hash_add to generate one for us.
 	 */
@@ -7117,7 +7147,8 @@ void napi_disable_locked(struct napi_struct *n)
 	else
 		napi_hash_del(n);
 
-	if (n->irq > 0 && n->dev->rx_cpu_rmap_auto)
+	if (n->irq > 0 &&
+	    (n->dev->irq_affinity_auto || n->dev->rx_cpu_rmap_auto))
 		irq_set_affinity_notifier(n->irq, NULL);
 
 	clear_bit(NAPI_STATE_DISABLE, &n->state);
@@ -11572,9 +11603,9 @@ struct net_device *alloc_netdev_mqs(int sizeof_priv, const char *name,
 		void (*setup)(struct net_device *),
 		unsigned int txqs, unsigned int rxqs)
 {
+	unsigned int maxqs, i, numa;
 	struct net_device *dev;
 	size_t napi_config_sz;
-	unsigned int maxqs;
 
 	BUG_ON(strlen(name) >= sizeof(dev->name));
 
@@ -11675,6 +11706,11 @@ struct net_device *alloc_netdev_mqs(int sizeof_priv, const char *name,
 	dev->napi_config = kvzalloc(napi_config_sz, GFP_KERNEL_ACCOUNT);
 	if (!dev->napi_config)
 		goto free_all;
+
+	numa = dev_to_node(&dev->dev);
+	for (i = 0; i < maxqs; i++)
+		cpumask_set_cpu(cpumask_local_spread(i, numa),
+				&dev->napi_config[i].affinity_mask);
 
 	strscpy(dev->name, name);
 	dev->name_assign_type = name_assign_type;
