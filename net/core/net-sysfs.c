@@ -99,7 +99,9 @@ static ssize_t netdev_store(struct device *dev, struct device_attribute *attr,
 		return restart_syscall();
 
 	if (dev_isalive(netdev)) {
+		netdev_lock_ops(netdev);
 		ret = (*set)(netdev, new);
+		netdev_unlock_ops(netdev);
 		if (ret == 0)
 			ret = len;
 	}
@@ -269,8 +271,10 @@ static ssize_t speed_show(struct device *dev,
 	if (netif_running(netdev)) {
 		struct ethtool_link_ksettings cmd;
 
+		netdev_lock_ops(netdev);
 		if (!__ethtool_get_link_ksettings(netdev, &cmd))
 			ret = sysfs_emit(buf, fmt_dec, cmd.base.speed);
+		netdev_unlock_ops(netdev);
 	}
 	rtnl_unlock();
 	return ret;
@@ -295,6 +299,7 @@ static ssize_t duplex_show(struct device *dev,
 	if (netif_running(netdev)) {
 		struct ethtool_link_ksettings cmd;
 
+		netdev_lock_ops(netdev);
 		if (!__ethtool_get_link_ksettings(netdev, &cmd)) {
 			const char *duplex;
 
@@ -311,6 +316,7 @@ static ssize_t duplex_show(struct device *dev,
 			}
 			ret = sysfs_emit(buf, "%s\n", duplex);
 		}
+		netdev_unlock_ops(netdev);
 	}
 	rtnl_unlock();
 	return ret;
@@ -493,6 +499,7 @@ static ssize_t ifalias_store(struct device *dev, struct device_attribute *attr,
 	if (!rtnl_trylock())
 		return restart_syscall();
 
+	netdev_lock_ops(netdev);
 	if (dev_isalive(netdev)) {
 		ret = dev_set_alias(netdev, buf, count);
 		if (ret < 0)
@@ -500,6 +507,7 @@ static ssize_t ifalias_store(struct device *dev, struct device_attribute *attr,
 		ret = len;
 		netdev_state_change(netdev);
 	}
+	netdev_unlock_ops(netdev);
 err:
 	rtnl_unlock();
 
@@ -562,6 +570,7 @@ static ssize_t phys_port_id_show(struct device *dev,
 	if (!rtnl_trylock())
 		return restart_syscall();
 
+	netdev_lock_ops(netdev);
 	if (dev_isalive(netdev)) {
 		struct netdev_phys_item_id ppid;
 
@@ -569,6 +578,7 @@ static ssize_t phys_port_id_show(struct device *dev,
 		if (!ret)
 			ret = sysfs_emit(buf, "%*phN\n", ppid.id_len, ppid.id);
 	}
+	netdev_unlock_ops(netdev);
 	rtnl_unlock();
 
 	return ret;
@@ -591,6 +601,7 @@ static ssize_t phys_port_name_show(struct device *dev,
 	if (!rtnl_trylock())
 		return restart_syscall();
 
+	netdev_lock_ops(netdev);
 	if (dev_isalive(netdev)) {
 		char name[IFNAMSIZ];
 
@@ -598,6 +609,7 @@ static ssize_t phys_port_name_show(struct device *dev,
 		if (!ret)
 			ret = sysfs_emit(buf, "%s\n", name);
 	}
+	netdev_unlock_ops(netdev);
 	rtnl_unlock();
 
 	return ret;
@@ -621,6 +633,7 @@ static ssize_t phys_switch_id_show(struct device *dev,
 	if (!rtnl_trylock())
 		return restart_syscall();
 
+	netdev_lock_ops(netdev);
 	if (dev_isalive(netdev)) {
 		struct netdev_phys_item_id ppid = { };
 
@@ -628,6 +641,7 @@ static ssize_t phys_switch_id_show(struct device *dev,
 		if (!ret)
 			ret = sysfs_emit(buf, "%*phN\n", ppid.id_len, ppid.id);
 	}
+	netdev_lock_ops(netdev);
 	rtnl_unlock();
 
 	return ret;
@@ -1316,6 +1330,8 @@ static ssize_t traffic_class_show(struct netdev_queue *queue,
 	if (!rtnl_trylock())
 		return restart_syscall();
 
+	netdev_lock_ops(dev);
+
 	index = get_netdev_queue_index(queue);
 
 	/* If queue belongs to subordinate dev use its TC mapping */
@@ -1323,6 +1339,8 @@ static ssize_t traffic_class_show(struct netdev_queue *queue,
 
 	num_tc = dev->num_tc;
 	tc = netdev_txq_to_tc(dev, index);
+
+	netdev_unlock_ops(dev);
 
 	rtnl_unlock();
 
@@ -1370,9 +1388,13 @@ static ssize_t tx_maxrate_store(struct netdev_queue *queue,
 	if (!rtnl_trylock())
 		return restart_syscall();
 
+	netdev_lock_ops(dev);
+
 	err = -EOPNOTSUPP;
 	if (dev->netdev_ops->ndo_set_tx_maxrate)
 		err = dev->netdev_ops->ndo_set_tx_maxrate(dev, index, rate);
+
+	netdev_unlock_ops(dev);
 
 	rtnl_unlock();
 	if (!err) {
@@ -1627,6 +1649,8 @@ static ssize_t xps_cpus_show(struct netdev_queue *queue, char *buf)
 	if (!rtnl_trylock())
 		return restart_syscall();
 
+	netdev_lock_ops(dev);
+
 	/* If queue belongs to subordinate dev use its map */
 	dev = netdev_get_tx_queue(dev, index)->sb_dev ? : dev;
 
@@ -1638,6 +1662,7 @@ static ssize_t xps_cpus_show(struct netdev_queue *queue, char *buf)
 
 	/* Make sure the subordinate device can't be freed */
 	get_device(&dev->dev);
+	netdev_unlock_ops(dev);
 	rtnl_unlock();
 
 	len = xps_queue_show(dev, index, tc, buf, XPS_CPUS);
@@ -1676,7 +1701,9 @@ static ssize_t xps_cpus_store(struct netdev_queue *queue,
 		return restart_syscall();
 	}
 
+	netdev_lock_ops(dev);
 	err = netif_set_xps_queue(dev, mask, index);
+	netdev_unlock_ops(dev);
 	rtnl_unlock();
 
 	free_cpumask_var(mask);
@@ -1735,9 +1762,11 @@ static ssize_t xps_rxqs_store(struct netdev_queue *queue, const char *buf,
 		return restart_syscall();
 	}
 
+	netdev_lock_ops(dev);
 	cpus_read_lock();
 	err = __netif_set_xps_queue(dev, mask, index, XPS_RXQS);
 	cpus_read_unlock();
+	netdev_unlock_ops(dev);
 
 	rtnl_unlock();
 

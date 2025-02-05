@@ -3005,6 +3005,8 @@ static int do_setlink(const struct sk_buff *skb, struct net_device *dev,
 	char ifname[IFNAMSIZ];
 	int err;
 
+	netdev_lock_ops(dev);
+
 	err = validate_linkmsg(dev, tb, extack);
 	if (err < 0)
 		goto errout;
@@ -3369,6 +3371,8 @@ errout:
 					     dev->name);
 	}
 
+	netdev_unlock_ops(dev);
+
 	return err;
 }
 
@@ -3464,7 +3468,9 @@ static int rtnl_group_dellink(const struct net *net, int group)
 			const struct rtnl_link_ops *ops;
 
 			ops = dev->rtnl_link_ops;
+			netdev_lock_ops(dev);
 			ops->dellink(dev, &list_kill);
+			netdev_unlock_ops(dev);
 		}
 	}
 	unregister_netdevice_many(&list_kill);
@@ -3689,7 +3695,9 @@ static int rtnl_changelink(const struct sk_buff *skb, struct nlmsghdr *nlh,
 		if (!ops || ops != dev->rtnl_link_ops || !ops->changelink)
 			return -EOPNOTSUPP;
 
+		netdev_lock_ops(dev);
 		err = ops->changelink(dev, tb, data, extack);
+		netdev_unlock_ops(dev);
 		if (err < 0)
 			return err;
 
@@ -3800,6 +3808,7 @@ static int rtnl_newlink_create(struct sk_buff *skb, struct ifinfomsg *ifm,
 		goto out;
 	}
 
+	netdev_lock_ops(dev);
 	err = rtnl_configure_link(dev, ifm, portid, nlh);
 	if (err < 0)
 		goto out_unregister;
@@ -3813,9 +3822,11 @@ static int rtnl_newlink_create(struct sk_buff *skb, struct ifinfomsg *ifm,
 		if (err)
 			goto out_unregister;
 	}
+	netdev_unlock_ops(dev);
 out:
 	return err;
 out_unregister:
+	netdev_unlock_ops(dev);
 	if (ops->newlink) {
 		LIST_HEAD(list_kill);
 
@@ -4136,10 +4147,12 @@ static int rtnl_getlink(struct sk_buff *skb, struct nlmsghdr *nlh,
 	 */
 	linkwatch_sync_dev(dev);
 
+	netdev_lock_ops(dev);
 	err = rtnl_fill_ifinfo(nskb, dev, net,
 			       RTM_NEWLINK, NETLINK_CB(skb).portid,
 			       nlh->nlmsg_seq, 0, 0, ext_filter_mask,
 			       0, NULL, 0, netnsid, GFP_KERNEL);
+	netdev_unlock_ops(dev);
 	if (err < 0) {
 		/* -EMSGSIZE implies BUG in if_nlmsg_size */
 		WARN_ON(err == -EMSGSIZE);
@@ -6239,9 +6252,11 @@ static int rtnl_stats_get(struct sk_buff *skb, struct nlmsghdr *nlh,
 	if (!nskb)
 		return -ENOBUFS;
 
+	netdev_lock_ops(dev);
 	err = rtnl_fill_statsinfo(nskb, dev, RTM_NEWSTATS,
 				  NETLINK_CB(skb).portid, nlh->nlmsg_seq, 0,
 				  0, &filters, &idxattr, &prividx, extack);
+	netdev_unlock_ops(dev);
 	if (err < 0) {
 		/* -EMSGSIZE implies BUG in if_nlmsg_stats_size */
 		WARN_ON(err == -EMSGSIZE);

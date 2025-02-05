@@ -2595,11 +2595,14 @@ static inline void netdev_for_each_tx_queue(struct net_device *dev,
 	static struct lock_class_key qdisc_tx_busylock_key;	\
 	static struct lock_class_key qdisc_xmit_lock_key;	\
 	static struct lock_class_key dev_addr_list_lock_key;	\
+	static struct lock_class_key dev_instance_lock_key;	\
 	unsigned int i;						\
 								\
 	(dev)->qdisc_tx_busylock = &qdisc_tx_busylock_key;	\
 	lockdep_set_class(&(dev)->addr_list_lock,		\
 			  &dev_addr_list_lock_key);		\
+	lockdep_set_class(&(dev)->lock,				\
+			  &dev_instance_lock_key);		\
 	for (i = 0; i < (dev)->num_tx_queues; i++)		\
 		lockdep_set_class(&(dev)->_tx[i]._xmit_lock,	\
 				  &qdisc_xmit_lock_key);	\
@@ -2738,6 +2741,14 @@ static inline void netdev_unlock_ops(struct net_device *dev)
 {
 	if (need_netdev_ops_lock(dev))
 		netdev_unlock(dev);
+}
+
+extern int rtnl_is_locked(void);
+
+static inline void netdev_ops_assert_locked(struct net_device *dev)
+{
+	if (need_netdev_ops_lock(dev) && !rtnl_is_locked())
+		lockdep_assert_held(&dev->lock);
 }
 
 static inline void netif_napi_set_irq_locked(struct napi_struct *napi, int irq)
