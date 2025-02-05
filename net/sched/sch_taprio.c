@@ -1621,8 +1621,11 @@ static int taprio_parse_clockid(struct Qdisc *sch, struct nlattr **tb,
 			goto out;
 		}
 
-		if (ops && ops->get_ts_info)
+		if (ops && ops->get_ts_info) {
+			netdev_lock_ops(dev);
 			err = ops->get_ts_info(dev, &info);
+			netdev_unlock_ops(dev);
+		}
 
 		if (err || info.phc_index < 0) {
 			NL_SET_ERR_MSG(extack,
