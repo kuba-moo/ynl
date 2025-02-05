@@ -38,6 +38,7 @@
 #include <linux/moduleparam.h>
 #include <linux/rtnetlink.h>
 #include <linux/net_tstamp.h>
+#include <net/net_shaper.h>
 #include <net/rtnetlink.h>
 #include <linux/u64_stats_sync.h>
 
@@ -82,6 +83,41 @@ static int dummy_change_carrier(struct net_device *dev, bool new_carrier)
 	return 0;
 }
 
+static int dummy_shaper_set(struct net_shaper_binding *binding,
+			    const struct net_shaper *shaper,
+			    struct netlink_ext_ack *extack)
+{
+	return 0;
+}
+
+static int dummy_shaper_del(struct net_shaper_binding *binding,
+			    const struct net_shaper_handle *handle,
+			    struct netlink_ext_ack *extack)
+{
+	return 0;
+}
+
+static int dummy_shaper_group(struct net_shaper_binding *binding,
+			      int leaves_count, const struct net_shaper *leaves,
+			      const struct net_shaper *root,
+			      struct netlink_ext_ack *extack)
+{
+	return 0;
+}
+
+static void dummy_shaper_cap(struct net_shaper_binding *binding,
+			     enum net_shaper_scope scope, unsigned long *flags)
+{
+	*flags = ULONG_MAX;
+}
+
+static const struct net_shaper_ops dummy_shaper_ops = {
+	.set			= dummy_shaper_set,
+	.delete			= dummy_shaper_del,
+	.group			= dummy_shaper_group,
+	.capabilities		= dummy_shaper_cap,
+};
+
 static const struct net_device_ops dummy_netdev_ops = {
 	.ndo_init		= dummy_dev_init,
 	.ndo_start_xmit		= dummy_xmit,
@@ -90,6 +126,7 @@ static const struct net_device_ops dummy_netdev_ops = {
 	.ndo_set_mac_address	= eth_mac_addr,
 	.ndo_get_stats64	= dummy_get_stats64,
 	.ndo_change_carrier	= dummy_change_carrier,
+	.net_shaper_ops		= &dummy_shaper_ops,
 };
 
 static const struct ethtool_ops dummy_ethtool_ops = {
