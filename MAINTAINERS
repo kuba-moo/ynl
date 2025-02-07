@@ -23389,6 +23389,7 @@ M:	Mark Gross <markgross@kernel.org>
 S:	Supported
 F:	drivers/char/tlclk.c
 
+
 TEMPO SEMICONDUCTOR DRIVERS
 M:	Steven Eckhoff <steven.eckhoff.opensource@gmail.com>
 S:	Maintained
